@@ -39,7 +39,16 @@ Changes are saved on the device. Editing the currently active profile applies it
 
 These combinations follow the stock quick settings UI. The refresh option controls the same Retroid setting as the frequency tile. **Leave unchanged** does not write either refresh-rate setting; it does not restore an earlier rate. External display modes are still negotiated by the firmware.
 
-<img src="docs/images/profile-editor.png" width="640" alt="Nova Dock profile editor on a Retroid Pocket Nova">
+## Screenshots
+
+Captured directly from the Retroid Pocket Nova running version 0.2.0 (1280 × 960). Open a caption to view the original screenshot.
+
+| [Main screen](docs/images/overview.png) | [Profile cards](docs/images/profiles.png) |
+|---|---|
+| <img src="docs/images/overview.png" width="420" alt="Nova Dock main screen with automation enabled"> | <img src="docs/images/profiles.png" width="420" alt="Docked and handheld profile cards"> |
+| [Docked profile editor](docs/images/dock-profile.png) | [Handheld profile editor](docs/images/handheld-profile.png) |
+| <img src="docs/images/dock-profile.png" width="420" alt="Docked profile refresh rate, performance and fan settings"> | <img src="docs/images/handheld-profile.png" width="420" alt="Handheld profile settings scrolled to the controller layout"> |
+
 
 Nova Dock leaves Retroid's built-in **turn off the internal screen when connected to a TV** option in control of the display backlight.
 
