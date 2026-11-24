@@ -9,7 +9,7 @@ Configurable docked and handheld profiles for **Retroid Pocket Nova**. Choose th
 
 **[Download APK](https://github.com/bseleng/nova-dock/releases/tag/v0.3.0)** · **[Русская документация](docs/README.ru.md)** · **[Report an issue](https://github.com/bseleng/nova-dock/issues/new?template=bug_report.yml)**
 
-> **Early prototype.** A physical dock/undock cycle has been confirmed by the owner on a real Nova. Configurable presets are tested on the device. Reboot recovery, long-term behavior and other firmware versions remain unverified.
+> **Early prototype.** A physical dock/undock cycle has been confirmed by the owner on a real Nova. Configurable presets and automatic handheld startup after a real reboot are tested on the device. Docked reboot recovery, long-term behavior and other firmware versions remain unverified.
 
 ## Default profiles
 
@@ -67,6 +67,12 @@ No root installation, Shizuku or ADB permission grant is required on the tested 
 
 Turning automation off restores the handheld profile. The app can also restore the settings saved before its first profile application. Stop automation or restore those settings before uninstalling.
 
+## Startup after reboot
+
+Enable automatic mode once. When Android finishes booting, Nova Dock starts its foreground service and applies the saved profile for the current display connection. Opening the app after each reboot is unnecessary. If automatic mode was turned off, the boot receiver leaves it off.
+
+On version 0.3.0, a real reboot with no external display was verified without opening Nova Dock: Android started `BootReceiver` for `BOOT_COMPLETED`, the foreground service applied the handheld profile, and the launcher remained in the foreground. Profile choices and original-setting snapshots were preserved. See the compatibility notes below for the tested firmware and remaining checks.
+
 ## How it works
 
 - Reads the physical DisplayPort connection, with Retroid properties and Android presentation displays as fallbacks.
@@ -119,7 +125,9 @@ In 0.2.0, on-device tests also verified Smart/Performance while leaving frequenc
 
 In 0.3.0, the stock bypass switch and the charging driver were verified in both directions: enabled produced `usb_charge_now=0`, disabled produced `1`. Tests covered the opposite user choices, saving from the real UI, upgrading an older original-settings snapshot and restoring all nine previous setting values. Existing profile choices were preserved.
 
-Actual reboot recovery, long-term background survival, objective TV frame-pacing measurements and each emulator's controller/session handling remain unverified. The app currently accepts only Nova on Android 13.
+A real handheld reboot on 0.3.0 also passed: `BOOT_COMPLETED` started the foreground service without opening the activity; the saved 120 Hz / Xbox / Quiet / Standard / normal-charging profile was applied about three seconds after service startup. The charging driver reported `usb_charge_now=1`. Saved profile choices and original-setting snapshots were unchanged.
+
+Reboot recovery with an external display connected, long-term background survival, objective TV frame-pacing measurements and each emulator's controller/session handling remain unverified. The app currently accepts only Nova on Android 13.
 
 ## Build
 
