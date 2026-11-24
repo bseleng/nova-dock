@@ -1,0 +1,36 @@
+name: Bug report / Сообщение об ошибке
+description: Report a docking, profile or compatibility issue.
+body:
+  - type: input
+    id: firmware
+    attributes:
+      label: Device, Android and firmware / Устройство и прошивка
+      placeholder: Retroid Pocket Nova, Android 13, RPN_V1.0.0.436
+    validations:
+      required: true
+  - type: textarea
+    id: display
+    attributes:
+      label: Dock and display / Док и экран
+      description: Adapter/dock, TV/monitor, output resolution and refresh rate.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps and actual result / Действия и результат
+      description: What happened when connecting and disconnecting? Include the game/emulator and controller if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / Ожидаемое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Nova Dock transition log / Журнал переходов
+      description: Share the app log; remove personal information. Do not attach vendor APKs or full device dumps.
+      render: text
