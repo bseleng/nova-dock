@@ -48,6 +48,10 @@ if not KEY.exists():
 APK.parent.mkdir(parents=True,exist_ok=True)
 run(BT/"apksigner","sign","--ks",KEY,"--ks-pass","pass:android","--ks-key-alias","nova-dock","--out",APK,BUILD/"aligned.apk")
 run(BT/"apksigner","verify","--verbose",APK)
-run(JAVA/"bin/javac","-encoding","UTF-8","-d",BUILD/"tests",ROOT/"src/local/nova/dock/StableConnection.java",ROOT/"test/local/nova/dock/StableConnectionTest.java")
+test_sources=[ROOT/"src/local/nova/dock"/name for name in ("StableConnection.java","Profile.java","SettingChanges.java","ControlState.java")]
+test_sources+=list((ROOT/"test").rglob("*.java"))
+run(JAVA/"bin/javac","-encoding","UTF-8","-d",BUILD/"tests",*test_sources)
 run(JAVA/"bin/java","-cp",BUILD/"tests","local.nova.dock.StableConnectionTest")
+run(JAVA/"bin/java","-cp",BUILD/"tests","local.nova.dock.SettingChangesTest")
+run(JAVA/"bin/java","-cp",BUILD/"tests","local.nova.dock.ControlStateTest")
 print(APK)

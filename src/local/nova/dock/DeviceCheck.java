@@ -12,6 +12,8 @@ import android.view.Display;
 import android.view.InputDevice;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.HashSet;
 
 /** Explicit ADB-only instrumentation; no exported activity or broadcast can force a dock profile. */
 public final class DeviceCheck extends Instrumentation {
@@ -20,20 +22,25 @@ public final class DeviceCheck extends Instrumentation {
     @Override public void onStart() {
         Bundle result=new Bundle(); StringBuilder report=new StringBuilder();
         Context c=getTargetContext(); Retroid r=new Retroid(c);
-        Map<String,String> original=r.snapshot(); boolean wasEnabled=Store.enabled(c);
-        Map<String,Integer> originalProfiles=Profiles.snapshot(c);
+        Map<String,String> original=r.snapshot(); boolean wasEnabled=Store.enabled(c), wasManaged=Store.managed(c);
+        Map<String,?> originalPreferences=Store.prefs(c).getAll();
         boolean changed=false;
         int code=-1;
         try {
             report.append("model=").append(android.os.Build.MODEL).append("\nvendorServiceAvailable=").append(r.permitted());
+            report.append("\ndefaultDockBypass=").append(Profile.defaults(true).bypassCharging?1:0)
+                .append("; defaultHandheldBypass=").append(Profile.defaults(false).bypassCharging?1:0)
+                .append("; startOnBoot=").append(Store.startOnBoot(c))
+                .append("; managed=").append(wasManaged).append("; automatic=").append(wasEnabled)
+                .append("; manualDocked=").append(Store.manualDocked(c));
             report.append("\nvendorBridge=").append(new VendorBridge().probe());
             Detector.Sample sample=Detector.sample(c); report.append("\ndisplayConnected=").append(sample.connected).append("; source=").append(sample.source);
             if (!r.supported() || sample.connected==null) throw new IllegalStateException("Diagnostic prerequisites failed");
             if ("true".equals(arguments.getString("profiles"))) {
                 if (!r.permitted()) throw new IllegalStateException("Retroid service unavailable");
                 if (Boolean.TRUE.equals(sample.connected)) throw new IllegalStateException("Unplug external display before profile self-test");
-                Store.enabled(c,false); c.stopService(new Intent(c,DockService.class)); Thread.sleep(1500);
                 changed=true;
+                Store.stop(c); c.stopService(new Intent(c,DockService.class)); Thread.sleep(1500);
                 verifyOriginalMigration(c,r);
                 report.append("\noriginalSnapshotMigration=PASS");
                 float beforeHz=c.getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY).getRefreshRate();
@@ -72,18 +79,35 @@ public final class DeviceCheck extends Instrumentation {
         } catch (Exception e) { report.append("\nFAIL: ").append(e); code=0; }
         finally {
             if (changed) {
-                Profiles.restore(c,originalProfiles);
                 try {
                     r.restore(original); Thread.sleep(1200L);
                     for (Map.Entry<String,String> entry:original.entrySet()) if (!Objects.equals(entry.getValue(),r.get(entry.getKey()))) throw new IllegalStateException("Original value not restored: "+entry.getKey());
                     report.append("\noriginalSettingsRestored=true");
                 }
                 catch (Exception e) { report.append("\nrestoreFailed=").append(e); code=0; }
-                Store.enabled(c,wasEnabled);
-                if (wasEnabled) report.append("\nreopenNovaDockToResumeAutomation=true");
+                try {
+                    restorePreferences(c,originalPreferences);
+                    if (!originalPreferences.equals(Store.prefs(c).getAll())) throw new IllegalStateException("Preference snapshot mismatch");
+                    report.append("\npreferencesRestored=true");
+                } catch (Exception e) { report.append("\npreferencesRestoreFailed=").append(e); code=0; }
+                if (wasManaged) report.append("\nreopenNovaDockToResumeSession=true; automatic=").append(wasEnabled);
             }
             result.putString("stream", report.toString()+"\n"); finish(code,result);
         }
+    }
+    @SuppressWarnings("unchecked")
+    private static void restorePreferences(Context c,Map<String,?> values) {
+        SharedPreferences.Editor edit=Store.prefs(c).edit().clear();
+        for (Map.Entry<String,?> entry:values.entrySet()) {
+            String key=entry.getKey(); Object value=entry.getValue();
+            if (value instanceof Boolean) edit.putBoolean(key,(Boolean)value);
+            else if (value instanceof Integer) edit.putInt(key,(Integer)value);
+            else if (value instanceof Long) edit.putLong(key,(Long)value);
+            else if (value instanceof Float) edit.putFloat(key,(Float)value);
+            else if (value instanceof String) edit.putString(key,(String)value);
+            else if (value instanceof Set) edit.putStringSet(key,new HashSet<>((Set<String>)value));
+        }
+        if (!edit.commit()) throw new IllegalStateException("Preferences were not restored");
     }
     private static String checkBypass(Context c,Retroid r,boolean docked) {
         Profile profile=Profiles.get(c,docked);

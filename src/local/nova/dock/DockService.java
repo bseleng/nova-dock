@@ -19,22 +19,30 @@ public final class DockService extends Service {
     static final String STOP = "local.nova.dock.STOP";
     static final String RESTORE = "local.nova.dock.RESTORE";
     static final String REAPPLY = "local.nova.dock.REAPPLY";
+    static final String RECONFIGURE = "local.nova.dock.RECONFIGURE";
+    static final String MANUAL = "local.nova.dock.MANUAL";
+    static final String CHANGE = "local.nova.dock.CHANGE";
+    private static final SettingChanges changes = new SettingChanges();
+    private static final ControlState.Revisions controls=new ControlState.Revisions();
     private HandlerThread thread;
     private Handler worker;
     private Retroid retroid;
     private volatile boolean running;
-    private Boolean applied;
+    private volatile boolean observing;
+    private volatile Boolean applied;
     private Boolean attempted;
     private int failures;
-    private int lastPowerState=Integer.MIN_VALUE;
-    private final Runnable powerCheck=() -> checkPowerSettings();
     private final StableConnection stable = new StableConnection();
     private final Runnable inspect = () -> inspect();
+    private final Runnable changePending = () -> {
+        SettingChanges.Request request;
+        while (running && (request=changes.take())!=null) changeSetting(request);
+    };
     private final Runnable poll = new Runnable() {
         @Override public void run() {
-            if (!running) return;
+            if (!automaticActive()) return;
             inspect();
-            if (running) worker.postDelayed(this, 1200L);
+            if (automaticActive()) worker.postDelayed(this, 1200L);
         }
     };
     private final DisplayManager.DisplayListener listener = new DisplayManager.DisplayListener() {
@@ -44,29 +52,51 @@ public final class DockService extends Service {
     };
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
-            if (Intent.ACTION_BATTERY_CHANGED.equals(i.getAction())) {
-                int state=(i.getIntExtra("status",0)<<8)|i.getIntExtra("plugged",0);
-                if (state==lastPowerState) return;
-                lastPowerState=state;
-            }
             signal();
-            if (worker!=null && running) worker.post(() -> {
-                worker.removeCallbacks(powerCheck);
-                worker.postDelayed(powerCheck,1600L);
-            });
         }
     };
     static void start(Context c, String action) {
         Intent i = new Intent(c, DockService.class);
         if (action != null) i.setAction(action);
+        if (STOP.equals(action) || RESTORE.equals(action)) {
+            i.putExtra("revision",controls.next());
+            Store.stop(c);
+        }
         c.startForegroundService(i);
+    }
+    static void automatic(Context c,boolean enabled) {
+        long revision=controls.next();
+        Store.automatic(c,enabled);
+        c.startForegroundService(new Intent(c,DockService.class).setAction(RECONFIGURE).putExtra("revision",revision));
+    }
+    static void manual(Context c,boolean docked) {
+        long revision=controls.next();
+        Store.manual(c,docked);
+        c.startForegroundService(new Intent(c,DockService.class).setAction(MANUAL).putExtra("docked",docked).putExtra("revision",revision));
+    }
+    static void restore(Context c) {
+        start(c,RESTORE);
+    }
+    static SettingChanges.Request change(Context c,Profile profile,int setting) {
+        SettingChanges.Request request=changes.offer(profile,setting);
+        try {
+            c.startForegroundService(new Intent(c,DockService.class).setAction(CHANGE));
+        } catch (RuntimeException e) {
+            changes.complete(request);
+            if (request.rebasedFan!=null) changes.complete(request.rebasedFan);
+            throw e;
+        }
+        return request;
+    }
+    static boolean acknowledged(boolean docked,int setting,long revision) {
+        return changes.acknowledged(docked,setting,revision);
     }
     @Override public void onCreate() {
         super.onCreate();
         retroid = new Retroid(this);
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("dock", "Режим дока", NotificationManager.IMPORTANCE_LOW));
-        startForeground(1, notification("Проверка подключения…"));
+        startForeground(1, notification(Store.enabled(this)?"Проверка подключения…":"Ручной режим"));
         thread = new HandlerThread("NovaDock"); thread.start();
         worker = new Handler(thread.getLooper());
         getSystemService(DisplayManager.class).registerDisplayListener(listener, worker);
@@ -75,7 +105,6 @@ public final class DockService extends Service {
         filter.addAction("android.intent.action.HDMI_PLUGGED");
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_USER_PRESENT);
-        filter.addAction(Intent.ACTION_BATTERY_CHANGED);
         filter.addAction(Intent.ACTION_POWER_CONNECTED);
         filter.addAction(Intent.ACTION_POWER_DISCONNECTED);
         // Treat vendor broadcasts only as wake-ups; always re-read physical connection state.
@@ -83,43 +112,122 @@ public final class DockService extends Service {
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
-        if (STOP.equals(action) || RESTORE.equals(action)) {
-            Store.enabled(this, false);
+        boolean stopping=STOP.equals(action) || RESTORE.equals(action);
+        Long dispatched=intent!=null && intent.hasExtra("revision")?intent.getLongExtra("revision",0):null;
+        long stopRevision=stopping?controls.receiveStop(dispatched,Store.managed(this)):0;
+        if (stopRevision!=0) {
+            Store.stop(this);
             running = false;
+            stopObserving();
+            changes.cancelAll();
             worker.removeCallbacksAndMessages(null);
             worker.post(() -> {
+                if (!controls.current(stopRevision)) return;
                 try {
-                    if (RESTORE.equals(action)) retroid.restoreOriginal(); else retroid.apply(false, false);
-                    Store.status(this, RESTORE.equals(action) ? "Исходные настройки восстановлены" : "Автоматика выключена · "+Profiles.get(this,false).status());
-                    Store.log(this, Store.prefs(this).getString("status", "Остановлено"));
-                } catch (Exception e) { error(e); }
-                stopForeground(STOP_FOREGROUND_REMOVE);
-                stopSelf(startId);
+                    if (RESTORE.equals(action)) retroid.restoreOriginal();
+                    controls.ifCurrent(stopRevision,()->{
+                        if (!Store.managed(this)) {
+                            Store.status(this, RESTORE.equals(action) ? "Исходные настройки восстановлены" : "Управление остановлено");
+                            Store.log(this, Store.prefs(this).getString("status", "Остановлено"));
+                        }
+                    });
+                } catch (Exception e) { if (controls.current(stopRevision)) error(e); }
+                applied=null;
+                controls.ifCurrent(stopRevision,()->{
+                    if (!Store.managed(this)) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId); }
+                });
             });
             return START_NOT_STICKY;
         }
-        if (!Store.enabled(this)) { stopSelf(startId); return START_NOT_STICKY; }
+        if (!Store.managed(this)) { changes.cancelAll(); stopSelf(startId); return START_NOT_STICKY; }
         if (!retroid.supported() || !retroid.permitted()) {
-            Store.enabled(this, false);
-            Store.status(this, "Сервис Retroid недоступен или прошивка не поддерживается");
+            Store.stop(this);
+            changes.cancelAll();
+            Store.status(this, "Ошибка: сервис Retroid недоступен или прошивка не поддерживается");
             stopSelf(startId);
             return START_NOT_STICKY;
         }
-        if (REAPPLY.equals(action)) { worker.post(() -> { applied = null; failures = 0; }); }
-        if (!running) {
+        boolean cold=!running;
+        if (cold) {
             running = true;
-            worker.post(poll);
-            Store.log(this, "Автоматика запущена");
+            Store.log(this, Store.enabled(this)?"Автоматика запущена":"Ручное управление запущено");
+        }
+        if (!Store.enabled(this)) stopObserving();
+        long revision=stopping || intent==null?controls.latest():intent.getLongExtra("revision",controls.latest());
+        if (cold && controls.latest()==0) {
+            // After process death, persisted state is authoritative; old in-process revisions died too.
+            worker.post(()->configure(true,controls.latest()));
+        } else if (MANUAL.equals(action) && intent.hasExtra("docked")) {
+            boolean mode=intent.getBooleanExtra("docked",false);
+            if (controls.current(revision) && !Boolean.valueOf(mode).equals(applied)) changes.cancelAll();
+            worker.post(()->{
+                if (!controls.current(revision) || !running || !Store.managed(this) || Store.enabled(this)) return;
+                applyManual(mode,false);
+            });
+        } else if (REAPPLY.equals(action)) {
+            changes.cancelAll();
+            worker.post(()->retry());
+        } else if (cold || RECONFIGURE.equals(action) || Store.enabled(this)!=observing) {
+            worker.post(()->configure(cold,revision));
+        }
+        if (CHANGE.equals(action)) {
+            worker.removeCallbacks(changePending);
+            worker.post(changePending);
         }
         return START_STICKY;
     }
     private void signal() {
-        if (worker == null || !running) return;
+        if (worker == null || !automaticActive()) return;
         worker.removeCallbacks(inspect);
         worker.post(inspect);
     }
+    private boolean automaticActive() { return running && observing && Store.managed(this) && Store.enabled(this); }
+    private void stopObserving() {
+        observing=false;
+        worker.removeCallbacks(poll);
+        worker.removeCallbacks(inspect);
+    }
+    private void configure(boolean cold,long revision) {
+        if (!running || !Store.managed(this) || !controls.current(revision)) return;
+        if (Store.enabled(this)) {
+            if (!observing) {
+                stable.update(null,SystemClock.elapsedRealtime()); attempted=null; failures=0;
+                observing=true;
+                worker.removeCallbacks(poll); worker.post(poll);
+            }
+        } else {
+            stopObserving(); stable.update(null,SystemClock.elapsedRealtime());
+            if (cold) applyManual(Store.manualDocked(this),false);
+            else {
+                // A transition already in flight is allowed to settle before freezing its mode.
+                if (applied==null) applied=Store.lastDocked(this);
+                controls.ifCurrent(revision,()->{ Store.syncManual(this,applied); normalStatus(applied); });
+            }
+        }
+    }
+    private void retry() {
+        if (!running || !Store.managed(this)) return;
+        if (Store.enabled(this)) {
+            applied=null; attempted=null; failures=0; stable.update(null,SystemClock.elapsedRealtime());
+            if (!observing) configure(false,controls.latest()); else signal();
+        } else applyManual(Store.manualDocked(this),true);
+    }
+    private void applyManual(boolean mode,boolean force) {
+        if (!running || !Store.state(this).needsManualApply(applied,force)) return;
+        try {
+            if (!retroid.apply(mode,false)) return;
+            if (!running || !Store.managed(this)) return;
+            applied=mode; attempted=null; failures=0; Store.applied(this,mode);
+            normalStatus(mode);
+            Store.log(this,Profiles.get(this,mode).status()+" · Ручной выбор");
+        } catch (Exception e) { applied=null; if (running && Store.managed(this)) error(e); }
+    }
+    private void normalStatus(boolean mode) {
+        String text=Profiles.get(this,mode).status(); Store.status(this,text); notifyStatus(text);
+    }
     private void inspect() {
-        if (!running || !Store.enabled(this)) return;
+        if (!automaticActive()) return;
+        boolean transitioning=false;
         try {
             Detector.Sample sample = Detector.sample(this);
             if (sample.connected == null) {
@@ -129,63 +237,44 @@ public final class DockService extends Service {
                 return;
             }
             Boolean mode = stable.update(sample.connected, SystemClock.elapsedRealtime());
-            if (mode == null || mode.equals(applied)) return;
+            if (mode == null) return;
+            if (mode.equals(applied)) {
+                if (Store.prefs(this).getString("status","").startsWith("Ожидание")) normalStatus(mode);
+                return;
+            }
             if (!mode.equals(attempted)) { failures = 0; attempted = mode; }
             if (failures >= 3) return;
-            boolean ok = retroid.apply(mode, true);
-            if (!ok) { Store.log(this, "Подключение изменилось во время перехода"); return; }
+            transitioning=true;
+            boolean ok = retroid.apply(mode, ()->Store.enabled(this));
+            if (!ok) { applied=null; Store.log(this, "Подключение изменилось во время перехода"); return; }
+            if (!running || !Store.managed(this)) return;
             // A cable may be removed while firmware settings are being applied.
             Detector.Sample after = Detector.sample(this);
-            if (!mode.equals(after.connected)) return;
+            if (Store.enabled(this) && !mode.equals(after.connected)) { applied=null; return; }
             applied = mode;
             failures = 0;
             String text = Profiles.get(this,mode).status();
             Store.status(this, text);
             Store.log(this, text + " · " + sample.source);
-            Store.prefs(this).edit().putBoolean("last_docked", mode).apply();
+            Store.applied(this,mode);
             notifyStatus(text);
-            worker.postDelayed(() -> verify(mode, 0), 1200L);
-        } catch (Exception e) { failures++; error(e); }
+            // Do not continuously reconcile settings: quick-panel edits last until the next mode.
+        } catch (Exception e) { if (transitioning) applied=null; failures++; if (running && Store.managed(this)) error(e); }
     }
-    private void checkPowerSettings() {
-        if (!running || !Store.enabled(this) || applied==null) return;
-        if (!applied.equals(Detector.sample(this).connected)) return;
+    private void changeSetting(SettingChanges.Request request) {
         try {
-            Profile profile=Profiles.get(this,applied);
-            boolean bypassRestored=retroid.restoreBypass(profile);
-            if (bypassRestored) Thread.sleep(700L);
-            if (!running || !Store.enabled(this) || !Boolean.valueOf(profile.docked).equals(Detector.sample(this).connected)) return;
-            Profile latest=Profiles.get(this,profile.docked);
-            if (profile.fan!=latest.fan || profile.bypassCharging!=latest.bypassCharging) return;
-            boolean fanRestored=retroid.restoreFan(profile);
-            if (fanRestored) Store.log(this,"Вентилятор восстановлен: "+Profile.fanLabel(profile.fan)+" · событие питания/экрана");
-            if (bypassRestored) Store.log(this,"Обходная зарядка восстановлена: "+(profile.bypassCharging?"вкл.":"выкл.")+" · событие питания/экрана");
-            if (fanRestored || bypassRestored) {
-                worker.postDelayed(() -> {
-                    if (running && Store.enabled(this) && Boolean.valueOf(profile.docked).equals(applied)
-                        && Boolean.valueOf(profile.docked).equals(Detector.sample(this).connected)
-                        && profile.fan==Profiles.get(this,profile.docked).fan
-                        && profile.bypassCharging==Profiles.get(this,profile.docked).bypassCharging
-                        && (!retroid.fanMatches(profile) || !retroid.bypassMatches(profile)))
-                        error(new IllegalStateException("Прошивка повторно изменила настройки питания/вентилятора"));
-                },1600L);
-            }
+            Profile profile=request.profile;
+            boolean mode=profile.docked;
+            int setting=request.setting;
+            if (!running || !Store.managed(this) || !changes.current(request) || !Boolean.valueOf(mode).equals(applied)) return;
+            // Finish an in-flight firmware transition so its compatible fan/custom speed survives
+            // into the next coalesced request. Stopping still cancels dependent writes.
+            if (!retroid.applySetting(profile,setting,()->running && Store.managed(this) && changes.unfinished(request),()->Store.enabled(this))) return;
+            if (!changes.current(request)) return;
+            String text=profile.status(); Store.status(this,text); notifyStatus(text);
+            Store.log(this,"Настройка применена · "+(mode?"В доке":"В руках")+" · "+Profile.settingLabel(setting)+": "+profile.value(setting));
         } catch (Exception e) { error(e); }
-    }
-    private void verify(boolean mode, int attempt) {
-        if (!running || !Store.enabled(this) || !Boolean.valueOf(mode).equals(applied)) return;
-        if (!Boolean.valueOf(mode).equals(Detector.sample(this).connected)) return;
-        if (retroid.matches(mode)) return;
-        if (attempt >= 2) {
-            applied = null; failures = 3;
-            error(new IllegalStateException("Прошивка переопределяет профиль. Нажмите «Повторить» после проверки настроек."));
-            return;
-        }
-        try {
-            Store.log(this, "Повторная проверка профиля: " + (attempt + 1));
-            retroid.apply(mode, true);
-            worker.postDelayed(() -> verify(mode, attempt + 1), 1200L);
-        } catch (Exception e) { error(e); }
+        finally { changes.complete(request); }
     }
     private void error(Exception e) {
         String message = "Ошибка: " + e.getMessage();
@@ -201,6 +290,8 @@ public final class DockService extends Service {
     private void notifyStatus(String text) { getSystemService(NotificationManager.class).notify(1, notification(text)); }
     @Override public void onDestroy() {
         running = false;
+        observing=false;
+        changes.cancelAll();
         getSystemService(DisplayManager.class).unregisterDisplayListener(listener);
         unregisterReceiver(receiver);
         if (worker != null) worker.removeCallbacksAndMessages(null);

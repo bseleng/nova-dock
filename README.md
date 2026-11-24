@@ -5,11 +5,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Download](https://img.shields.io/badge/Download-APK-74E3CC)](https://github.com/bseleng/nova-dock/releases)
 
-Configurable docked and handheld profiles for **Retroid Pocket Nova**. Choose the refresh rate, fan and performance preset for each mode, and the built-in controller layout to restore when undocking.
+Configurable docked and handheld profiles for **Retroid Pocket Nova**. Choose refresh rate, fan, performance and bypass charging for each mode, plus the built-in controller layout to restore when undocking. Change values directly from the tiles using touch or a gamepad.
 
-**[Download APK](https://github.com/bseleng/nova-dock/releases/tag/v0.3.0)** · **[Русская документация](docs/README.ru.md)** · **[Report an issue](https://github.com/bseleng/nova-dock/issues/new?template=bug_report.yml)**
+**[Download APK](https://github.com/bseleng/nova-dock/releases/tag/v0.4.0)** · **[Русская документация](docs/README.ru.md)** · **[Report an issue](https://github.com/bseleng/nova-dock/issues/new?template=bug_report.yml)**
 
-> **Early prototype.** A physical dock/undock cycle has been confirmed by the owner on a real Nova. Configurable presets and automatic handheld startup after a real reboot are tested on the device. Docked reboot recovery, long-term behavior and other firmware versions remain unverified.
+> **Early prototype.** A physical dock/undock cycle has been confirmed by the owner on a real Nova. Configurable presets and automatic startup after real handheld and docked reboots are tested on the device. Long-term behavior and other firmware versions remain unverified.
 
 ## Default profiles
 
@@ -23,15 +23,13 @@ Configurable docked and handheld profiles for **Retroid Pocket Nova**. Choose th
 
 ## Customize each profile
 
-Tap **Настроить** / Configure on either profile card:
+Tap a tile to cycle its value. Changes save immediately. In the active card, a change also applies immediately; in the other card, it is saved for the next mode switch. No settings editor or Save button is needed.
 
-- **Refresh rate:** Leave unchanged, 60 Hz or 120 Hz, independently for each profile.
-- **Fan:** Off, Quiet, Smart, Sport or Maximum, where supported by the selected performance preset.
-- **Performance:** Standard, Performance or High Performance.
-- **Bypass charging:** an independent switch in each profile; on by default in the dock and off in handheld mode.
-- **Handheld controller:** Xbox or Retro. The built-in controller remains disabled in the docked profile.
-
-Changes are saved on the device. Editing the currently active profile applies it immediately when automation is enabled. Defaults preserve the original 60 Hz dock / 120 Hz handheld behavior.
+- **Refresh rate:** Leave unchanged → 60 Hz → 120 Hz.
+- **Performance:** Standard → Performance → High Performance.
+- **Fan:** cycles the presets supported by the saved performance setting and, for the active card, the current live performance setting.
+- **Bypass charging:** On / Off. Defaults are **on in the dock, off in handheld mode**. Upgrades preserve saved choices.
+- **Handheld controller:** Xbox / Retro. The dock profile disables the built-in controller.
 
 | Performance preset | Available fan presets |
 |---|---|
@@ -39,39 +37,63 @@ Changes are saved on the device. Editing the currently active profile applies it
 | Performance | Quiet, Smart, Sport, Maximum |
 | High Performance | Smart, Sport, Maximum |
 
-These combinations follow the stock quick settings UI. The refresh option controls the same Retroid setting as the frequency tile. **Leave unchanged** does not write either refresh-rate setting; it does not restore an earlier rate. External display modes are still negotiated by the firmware.
+Changing performance preserves a compatible current fan setting, including a custom speed. An incompatible fan falls back to Smart. **Leave unchanged** writes neither refresh-rate setting and does not restore an earlier rate. External display modes remain under firmware control.
 
-Bypass charging uses Retroid's stock charging-separation mode. Charging limits and sleep behavior remain controlled by the firmware. Upgrading adds the new defaults while preserving existing profile choices and original-setting snapshots.
+### Temporary changes from the system quick panel
+
+Manual changes in Retroid's quick panel remain in effect until the next dock/handheld transition or a fresh management session. Nova Dock does not repeatedly overwrite them after power or wake events. The active card shows live values; when they differ from the saved profile, a small **Сохранено:** / Saved label shows the future profile value.
+
+An app tile saves its chosen value and applies that setting immediately, preserving other temporary choices except necessary fan/performance dependencies. The next mode switch applies the complete saved profile. Bypass charging uses Retroid's stock switch; firmware charging limits, sleep behavior and thermal control still apply.
+
+### Gamepad controls
+
+Use the **D-pad** to move the visible focus, **A** to activate the selected tile or action, and **B** to go back or close a dialog. Focused controls have a bright rounded outline, and the screen scrolls to the selected control.
+
+The **Журнал** / Log button opens a wide event list with single-line timestamps, separated entries and colored status badges. **Применить снова** / Apply again appears only after an application error.
 
 ## Screenshots
 
-Captured directly from the Retroid Pocket Nova running version 0.3.0 (1280 × 960). Open a caption to view the original screenshot.
+Captured directly from the Retroid Pocket Nova running version 0.4.0 (1280 × 960). Open a caption to view the original screenshot. Profile values in the screenshots are the owner's saved choices.
 
-| [Main screen](docs/images/overview.png) | [Profile cards](docs/images/profiles.png) |
+| [Main screen](docs/images/overview.png) | [Profile tiles](docs/images/profiles.png) |
 |---|---|
-| <img src="docs/images/overview.png" width="420" alt="Nova Dock main screen with automation enabled"> | <img src="docs/images/profiles.png" width="420" alt="Docked and handheld profile cards"> |
-| [Docked profile editor](docs/images/dock-profile.png) | [Handheld profile editor](docs/images/handheld-profile.png) |
-| <img src="docs/images/dock-profile.png" width="420" alt="Docked profile with bypass charging enabled"> | <img src="docs/images/handheld-profile.png" width="420" alt="Handheld profile with bypass charging disabled"> |
+| <img src="docs/images/overview.png" width="420" alt="Nova Dock automatic switching and startup switches"> | <img src="docs/images/profiles.png" width="420" alt="Docked and handheld tiles with cropped background artwork and active badge"> |
+| [Formatted log](docs/images/journal.png) | [Gamepad focus](docs/images/controller-focus.png) |
+| <img src="docs/images/journal.png" width="420" alt="Wide log with single-line timestamps and colored event statuses"> | <img src="docs/images/controller-focus.png" width="420" alt="Visible gamepad focus on a profile tile"> |
 
+[Manual mode selection](docs/images/manual-mode.png) appears in a third row when automatic switching is off.
 
 Nova Dock leaves Retroid's built-in **turn off the internal screen when connected to a TV** option in control of the display backlight.
 
 ## Getting started
 
-1. Download and install the APK from [Releases](https://github.com/bseleng/nova-dock/releases/tag/v0.3.0).
-2. Open **Nova Dock**, configure the two profiles if needed, and enable **Автоматический режим** / automatic mode.
+1. Download and install the APK from [Releases](https://github.com/bseleng/nova-dock/releases/tag/v0.4.0).
+2. Open **Nova Dock**, choose your presets, then enable **Переключать режимы автоматически** / switch modes automatically, or select a mode manually.
 3. Allow notifications so the current profile and stop action remain accessible.
 4. Connect or disconnect your external display. Allow about **5 seconds** for the connection to settle and the profile to apply.
 
 No root installation, Shizuku or ADB permission grant is required on the tested stock firmware. A computer is not needed for normal operation.
 
-Turning automation off restores the handheld profile. The app can also restore the settings saved before its first profile application. Stop automation or restore those settings before uninstalling.
+Turning automatic switching off keeps the current mode and values. Manual mode controls appear below the two switches. The app can also restore the settings saved before its first profile application. Restore those settings before uninstalling if you want the original device configuration back.
+
+## Automatic and manual modes
+
+The top panel has two matching switches:
+
+- **Переключать режимы автоматически** / Switch modes automatically: watches the external display and applies the saved docked or handheld profile when the connection changes.
+- **Запускать после загрузки** / Start after boot: resumes the last active management session after Android finishes booting.
+
+With automatic switching off, **В доке** / Docked and **В руках** / Handheld buttons appear in a third row. Choosing a different mode applies its complete saved profile, independently of the display connection. Display and power events do not change the manual mode. Selecting the already active mode leaves temporary changes intact.
+
+Tiles in the active manual card apply changes immediately, just as in automatic mode. The active badge identifies the currently selected mode. Normal parameter summaries are omitted from the top panel; errors, waiting and recovery appear there only when needed.
 
 ## Startup after reboot
 
-Enable automatic mode once. When Android finishes booting, Nova Dock starts its foreground service and applies the saved profile for the current display connection. Opening the app after each reboot is unnecessary. If automatic mode was turned off, the boot receiver leaves it off.
+**Start after boot** is enabled by default and works with either automatic or manual management. Turning it off leaves the current session running but prevents startup after the next reboot. Opening the app manually resumes a session that has not been explicitly stopped.
 
-On version 0.3.0, a real reboot with no external display was verified without opening Nova Dock: Android started `BootReceiver` for `BOOT_COMPLETED`, the foreground service applied the handheld profile, and the launcher remained in the foreground. Profile choices and original-setting snapshots were preserved. See the compatibility notes below for the tested firmware and remaining checks.
+The notification's Stop action stops management and leaves current device values in place. Restoring original settings also stops management. After either action, choose a manual mode or enable automatic switching to begin a new session. An APK update resumes an active session independently of the boot switch.
+
+Real automatic-mode reboots with and without an external display were verified on 0.3.0 without opening Nova Dock. The startup option was also checked on 0.4.0 with real on/off reboots. See compatibility notes for the tested firmware and limits.
 
 ## How it works
 
@@ -79,8 +101,9 @@ On version 0.3.0, a real reboot with no external display was verified without op
 - Uses display callbacks and firmware events, plus a lightweight periodic check.
 - Waits for a stable connection and ignores unknown sensor states.
 - Applies the same system settings used by Retroid's quick settings tiles.
-- Reapplies and verifies the fan setting after firmware performance/fan coupling settles.
-- Rechecks the saved fan and bypass presets after power-status and wake events. Charging changes settle before the fan is restored, without reconnecting the controller.
+- Settles Retroid performance/charging changes before restoring a compatible fan during an explicit application.
+- Applies app tile edits through one serialized worker, coalescing repeated changes and acknowledging the latest request.
+- Leaves subsequent manual quick-panel values alone until the next mode switch.
 - Extends the saved original-settings snapshot only for newly managed settings, preserving older original values.
 - Runs a foreground service with a notification and supports startup after boot when enabled.
 - Has no internet permission, analytics, game-file access or emulator configuration changes.
@@ -127,7 +150,17 @@ In 0.3.0, the stock bypass switch and the charging driver were verified in both 
 
 A real handheld reboot on 0.3.0 also passed: `BOOT_COMPLETED` started the foreground service without opening the activity; the saved 120 Hz / Xbox / Quiet / Standard / normal-charging profile was applied about three seconds after service startup. The charging driver reported `usb_charge_now=1`. Saved profile choices and original-setting snapshots were unchanged.
 
-Reboot recovery with an external display connected, long-term background survival, objective TV frame-pacing measurements and each emulator's controller/session handling remain unverified. The app currently accepts only Nova on Android 13.
+The owner then rebooted with the external display connected and returned the Nova to the computer. The new boot and foreground-service state confirmed `BOOT_COMPLETED` startup. The transition log recorded the saved 60 Hz / Sport dock profile about two seconds after service startup, then the handheld profile when the display was disconnected. No profile errors were recorded; saved choices and original-setting snapshots were preserved.
+
+In 0.4.0, device checks passed for live manual overrides, applying one app tile without resetting other temporary values, rapid coalesced changes, compatible custom fan speed, and the fan/performance dependency order. Both complete profiles and custom presets passed again, including charging-driver checks and exact restoration of all nine settings. Android gamepad D-pad/A/B events were tested on the Nova for navigation, value changes and dialog handling; external controller models have not been individually certified.
+
+Two further real reboots verified the startup option: off kept the foreground service stopped, while on started it through `BOOT_COMPLETED` and applied the handheld profile without opening the app. Manual opening resumed a previously enabled mode. Existing profiles and original-setting snapshots were preserved.
+
+Manual-mode checks on 0.4.0 verified that turning automatic switching off preserves runtime overrides, manual Docked works without an external display, selecting the same mode does not reset temporary values, and active tiles apply immediately. Rapid mode changes settled at the last selection. Restoring original settings stopped management; reopening left those values unchanged. The complete profile self-test also restored the entire manual-session preference snapshot.
+
+Two real reboots then checked manual Docked mode: startup off kept the service stopped until the app was opened; startup on resumed the manual dock profile through `BOOT_COMPLETED`, without opening Nova Dock or attaching an external display. Bypass charging was enabled in the driver. The user's saved profiles, startup choice and original-setting snapshot were preserved.
+
+Long-term background survival, objective TV frame-pacing measurements and each emulator's controller/session handling remain unverified. The app currently accepts only Nova on Android 13.
 
 ## Build
 
@@ -139,7 +172,7 @@ cd nova-dock
 python3 build.py
 ```
 
-Output: `dist/Nova-Dock-0.3.0.apk`. The build verifies the APK signature and runs the connection-state tests.
+Output: `dist/Nova-Dock-0.4.0.apk`. The build verifies the APK signature and runs the connection-state, setting-queue and control-state tests.
 
 Optional variables: `ANDROID_SDK_ROOT` / `ANDROID_HOME`, `NOVA_JAVA_HOME` / `JAVA_HOME`, `NOVA_BUILD_DIR`, `NOVA_APK_PATH`.
 
@@ -167,7 +200,7 @@ To also test non-default profiles and **Leave unchanged**:
 adb shell am instrument -w -e profiles true -e customProfiles true local.nova.dock/.DeviceCheck
 ```
 
-Instrumentation restarts the application process. Reopen Nova Dock afterward to resume an enabled foreground service:
+Instrumentation restarts the application process. Reopen Nova Dock afterward to resume an active automatic or manual session:
 
 ```sh
 adb shell am start -n local.nova.dock/.MainActivity

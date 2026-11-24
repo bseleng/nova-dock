@@ -8,6 +8,7 @@ import android.hardware.display.DisplayManager;
 import android.view.Display;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 
 final class Retroid {
     static final String[] KEYS = {"min_refresh_rate", "peak_refresh_rate", "performance_mode", "fan_mode", "fan_speed", "temp_abxy_layout_mode", "no_create_gamepad_button_layout", "flip_button_layout", "is_charging_separation"};
@@ -65,11 +66,26 @@ final class Retroid {
         put("flip_button_layout", layout==0 ? "1" : "0");
     }
     boolean apply(boolean docked, boolean requireConnection) throws InterruptedException {
+        return apply(docked,()->requireConnection);
+    }
+    boolean apply(boolean docked,BooleanSupplier requireConnection) throws InterruptedException {
         if (!supported() || !permitted()) throw new SecurityException("Требуется Nova с Android 13 и доступный сервис Retroid");
         saveOriginal();
         Profile profile=Profiles.get(context,docked);
-        if (docked && requireConnection && !Boolean.TRUE.equals(Detector.sample(context).connected)) return false;
+        if (requireConnection.getAsBoolean() && !Boolean.valueOf(docked).equals(Detector.sample(context).connected)) return false;
         if (!docked && !controllerMatches(profile)) controller(profile.layout);
+        rate(profile);
+        if (docked) fan(profile);
+        // Settle this explicit application; subsequent system-tile edits remain temporary overrides.
+        bypass(profile);
+        put("performance_mode", Integer.toString(profile.performance));
+        Thread.sleep(700);
+        if (requireConnection.getAsBoolean() && !Boolean.valueOf(docked).equals(Detector.sample(context).connected)) return false;
+        fan(profile);
+        if (docked && !controllerMatches(profile)) controller(profile.layout);
+        return true;
+    }
+    private void rate(Profile profile) {
         float rate = profile.rate==120 ? highRate() : 60f;
         // Lower min first for 120 -> 60; raise peak first for 60 -> 120.
         if (profile.rate!=0) {
@@ -78,34 +94,52 @@ final class Retroid {
             if (rate<current) { put("min_refresh_rate",Float.toString(rate)); put("peak_refresh_rate",Float.toString(rate)); }
             else { put("peak_refresh_rate",Float.toString(rate)); put("min_refresh_rate",Float.toString(rate)); }
         }
-        if (docked) fan(profile);
-        // Charging changes can trigger Retroid's automatic Smart fan; let both observers settle.
-        bypass(profile);
-        put("performance_mode", Integer.toString(profile.performance));
-        Thread.sleep(700);
-        if (docked && requireConnection && !Boolean.TRUE.equals(Detector.sample(context).connected)) return false;
-        // Reassert fan after the firmware's automatic performance/fan coupling has settled.
-        fan(profile);
-        if (docked && !controllerMatches(profile)) controller(profile.layout);
+    }
+    boolean applySetting(Profile profile,int setting,BooleanSupplier active,BooleanSupplier requireConnection) throws InterruptedException {
+        if (!supported() || !permitted()) throw new SecurityException("Сервис Retroid недоступен");
+        if (!active.getAsBoolean()) return false;
+        if (requireConnection.getAsBoolean() && !Boolean.valueOf(profile.docked).equals(Detector.sample(context).connected)) return false;
+        saveOriginal();
+        RuntimeSettings live=new RuntimeSettings(snapshot());
+        int performance=live.value(profile,Profile.PERFORMANCE), fan=live.value(profile,Profile.FAN);
+        String speed=get("fan_speed");
+        switch (setting) {
+            case Profile.RATE: rate(profile); break;
+            case Profile.FAN:
+                if (!Profile.fanAllowed(performance,profile.fan)) throw new IllegalStateException("Вентилятор недоступен при текущей производительности");
+                fan(profile); break;
+            case Profile.CONTROLLER:
+                if (profile.docked) return false;
+                controller(profile.layout); break;
+            case Profile.PERFORMANCE:
+            case Profile.BYPASS:
+                if (setting==Profile.PERFORMANCE) put("performance_mode",Integer.toString(profile.performance)); else bypass(profile);
+                Thread.sleep(700L);
+                if (!active.getAsBoolean()) return false;
+                if (requireConnection.getAsBoolean() && !Boolean.valueOf(profile.docked).equals(Detector.sample(context).connected)) return false;
+                int after=new RuntimeSettings(snapshot()).value(profile,Profile.PERFORMANCE);
+                // Retroid couples these writes to Smart. Preserve a compatible live fan choice.
+                if (after==(setting==Profile.PERFORMANCE?profile.performance:performance)) {
+                    int desired=Profile.fanAllowed(after,fan)?fan:4;
+                    fan(desired,desired==fan?speed:"35000");
+                }
+                break;
+            default:throw new IllegalArgumentException("Неизвестная настройка");
+        }
         return true;
     }
     private void fan(Profile profile) {
-        if (profile.fan==6) put("fan_speed","35000");
-        put("fan_mode",Integer.toString(profile.fan));
+        fan(profile.fan,"35000");
+    }
+    private void fan(int mode,String speed) {
+        if (mode==6) put("fan_speed",speed!=null && speed.matches("[0-9]+")?speed:"35000");
+        put("fan_mode",Integer.toString(mode));
     }
     boolean fanMatches(Profile profile) {
         return Integer.toString(profile.fan).equals(get("fan_mode")) && (profile.fan!=6 || "35000".equals(get("fan_speed")));
     }
-    boolean restoreFan(Profile profile) {
-        if (fanMatches(profile)) return false;
-        fan(profile); return true;
-    }
     private void bypass(Profile profile) { put("is_charging_separation",profile.bypassCharging?"1":"0"); }
     boolean bypassMatches(Profile profile) { return (profile.bypassCharging?"1":"0").equals(get("is_charging_separation")); }
-    boolean restoreBypass(Profile profile) {
-        if (bypassMatches(profile)) return false;
-        bypass(profile); return true;
-    }
     private boolean controllerMatches(Profile profile) {
         return Integer.toString(profile.layout).equals(get("temp_abxy_layout_mode"))
             && (profile.layout==2?"1":"0").equals(get("no_create_gamepad_button_layout"))
