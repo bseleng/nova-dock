@@ -6,8 +6,10 @@ import shutil
 import subprocess
 import sys
 import zipfile
+import xml.etree.ElementTree as ET
 
 ROOT=pathlib.Path(__file__).resolve().parent
+VERSION=ET.parse(ROOT/"AndroidManifest.xml").getroot().get("{http://schemas.android.com/apk/res/android}versionName")
 sdk_default=pathlib.Path.home()/("Library/Android/sdk" if sys.platform=="darwin" else "Android/Sdk")
 SDK=pathlib.Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or sdk_default)
 java_home=os.environ.get("NOVA_JAVA_HOME") or os.environ.get("JAVA_HOME")
@@ -21,7 +23,7 @@ JAVA=pathlib.Path(java_home)
 BT=SDK/"build-tools/35.0.0"
 ANDROID=SDK/"platforms/android-35/android.jar"
 BUILD=pathlib.Path(os.environ.get("NOVA_BUILD_DIR",str(ROOT/"build")))
-APK=pathlib.Path(os.environ.get("NOVA_APK_PATH",str(ROOT/"dist/Nova-Dock-0.1.0.apk")))
+APK=pathlib.Path(os.environ.get("NOVA_APK_PATH",str(ROOT/("dist/Nova-Dock-"+VERSION+".apk"))))
 if BUILD.resolve()==ROOT or BUILD.resolve() in ROOT.parents:
     raise SystemExit("NOVA_BUILD_DIR must be a dedicated build directory.")
 def run(*args): subprocess.run([str(a) for a in args],check=True,env={**os.environ,"JAVA_HOME":str(JAVA)})

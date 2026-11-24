@@ -26,6 +26,8 @@ public final class DockService extends Service {
     private Boolean applied;
     private Boolean attempted;
     private int failures;
+    private int lastPowerState=Integer.MIN_VALUE;
+    private final Runnable fanCheck=() -> checkFan();
     private final StableConnection stable = new StableConnection();
     private final Runnable inspect = () -> inspect();
     private final Runnable poll = new Runnable() {
@@ -41,7 +43,18 @@ public final class DockService extends Service {
         public void onDisplayChanged(int id) { signal(); }
     };
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) { signal(); }
+        @Override public void onReceive(Context c, Intent i) {
+            if (Intent.ACTION_BATTERY_CHANGED.equals(i.getAction())) {
+                int state=(i.getIntExtra("status",0)<<8)|i.getIntExtra("plugged",0);
+                if (state==lastPowerState) return;
+                lastPowerState=state;
+            }
+            signal();
+            if (worker!=null && running) worker.post(() -> {
+                worker.removeCallbacks(fanCheck);
+                worker.postDelayed(fanCheck,1600L);
+            });
+        }
     };
     static void start(Context c, String action) {
         Intent i = new Intent(c, DockService.class);
@@ -62,6 +75,9 @@ public final class DockService extends Service {
         filter.addAction("android.intent.action.HDMI_PLUGGED");
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_USER_PRESENT);
+        filter.addAction(Intent.ACTION_BATTERY_CHANGED);
+        filter.addAction(Intent.ACTION_POWER_CONNECTED);
+        filter.addAction(Intent.ACTION_POWER_DISCONNECTED);
         // Treat vendor broadcasts only as wake-ups; always re-read physical connection state.
         registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
     }
@@ -74,7 +90,7 @@ public final class DockService extends Service {
             worker.post(() -> {
                 try {
                     if (RESTORE.equals(action)) retroid.restoreOriginal(); else retroid.apply(false, false);
-                    Store.status(this, RESTORE.equals(action) ? "Исходные настройки восстановлены" : "Автоматика выключена · портативный режим");
+                    Store.status(this, RESTORE.equals(action) ? "Исходные настройки восстановлены" : "Автоматика выключена · "+Profiles.get(this,false).status());
                     Store.log(this, Store.prefs(this).getString("status", "Остановлено"));
                 } catch (Exception e) { error(e); }
                 stopForeground(STOP_FOREGROUND_REMOVE);
@@ -123,13 +139,29 @@ public final class DockService extends Service {
             if (!mode.equals(after.connected)) return;
             applied = mode;
             failures = 0;
-            String text = mode ? "В доке · 60 Гц · максимум" : "Портативный режим · 120 Гц · Quiet";
+            String text = Profiles.get(this,mode).status();
             Store.status(this, text);
             Store.log(this, text + " · " + sample.source);
             Store.prefs(this).edit().putBoolean("last_docked", mode).apply();
             notifyStatus(text);
             worker.postDelayed(() -> verify(mode, 0), 1200L);
         } catch (Exception e) { failures++; error(e); }
+    }
+    private void checkFan() {
+        if (!running || !Store.enabled(this) || applied==null) return;
+        if (!applied.equals(Detector.sample(this).connected)) return;
+        try {
+            Profile profile=Profiles.get(this,applied);
+            if (retroid.restoreFan(profile)) {
+                Store.log(this,"Вентилятор восстановлен: "+Profile.fanLabel(profile.fan)+" · событие питания/экрана");
+                worker.postDelayed(() -> {
+                    if (running && Store.enabled(this) && Boolean.valueOf(profile.docked).equals(applied)
+                        && Boolean.valueOf(profile.docked).equals(Detector.sample(this).connected)
+                        && profile.fan==Profiles.get(this,profile.docked).fan && !retroid.fanMatches(profile))
+                        error(new IllegalStateException("Прошивка повторно изменила режим вентилятора"));
+                },1600L);
+            }
+        } catch (Exception e) { error(e); }
     }
     private void verify(boolean mode, int attempt) {
         if (!running || !Store.enabled(this) || !Boolean.valueOf(mode).equals(applied)) return;
