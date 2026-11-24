@@ -10,7 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 final class Retroid {
-    static final String[] KEYS = {"min_refresh_rate", "peak_refresh_rate", "performance_mode", "fan_mode", "fan_speed", "temp_abxy_layout_mode", "no_create_gamepad_button_layout", "flip_button_layout"};
+    static final String[] KEYS = {"min_refresh_rate", "peak_refresh_rate", "performance_mode", "fan_mode", "fan_speed", "temp_abxy_layout_mode", "no_create_gamepad_button_layout", "flip_button_layout", "is_charging_separation"};
     final Context context;
     final VendorBridge bridge = new VendorBridge();
     Retroid(Context c) { context = c.getApplicationContext(); }
@@ -27,25 +27,29 @@ final class Retroid {
     }
     void saveOriginal() {
         SharedPreferences p = Store.prefs(context);
-        if (p.getBoolean("saved_original", false)) return;
         SharedPreferences.Editor edit = p.edit();
-        for (Map.Entry<String, String> e : snapshot().entrySet()) {
-            edit.putString("original_" + e.getKey(), e.getValue());
-            edit.putBoolean("present_" + e.getKey(), e.getValue() != null);
+        boolean changed=!p.getBoolean("saved_original",false);
+        // Capture only newly managed keys on upgrade; never replace an earlier original value.
+        for (String key : KEYS) {
+            if (p.contains("present_"+key)) continue;
+            String value=get(key);
+            edit.putString("original_"+key,value).putBoolean("present_"+key,value!=null);
+            changed=true;
         }
-        edit.putBoolean("saved_original", true).commit();
+        if (changed && !edit.putBoolean("saved_original",true).commit()) throw new IllegalStateException("Не удалось сохранить исходные настройки");
     }
     void restore(Map<String, String> values) throws InterruptedException {
-        // Firmware SystemUI reacts asynchronously to performance changes and may rewrite fan_mode.
-        put("performance_mode", values.get("performance_mode"));
+        // Both charging and performance changes can asynchronously rewrite the fan preset.
+        if (values.containsKey("is_charging_separation")) put("is_charging_separation",values.get("is_charging_separation"));
+        if (values.containsKey("performance_mode")) put("performance_mode",values.get("performance_mode"));
         Thread.sleep(700);
-        for (Map.Entry<String, String> e : values.entrySet()) if (!"performance_mode".equals(e.getKey())) put(e.getKey(), e.getValue());
+        for (Map.Entry<String, String> e : values.entrySet()) if (!"performance_mode".equals(e.getKey()) && !"is_charging_separation".equals(e.getKey())) put(e.getKey(), e.getValue());
     }
     void restoreOriginal() throws InterruptedException {
         SharedPreferences p = Store.prefs(context);
         if (!p.getBoolean("saved_original", false)) return;
         Map<String, String> values = new LinkedHashMap<>();
-        for (String key : KEYS) values.put(key, p.getBoolean("present_" + key, false) ? p.getString("original_" + key, null) : null);
+        for (String key : KEYS) if (p.contains("present_"+key)) values.put(key, p.getBoolean("present_" + key, false) ? p.getString("original_" + key, null) : null);
         restore(values);
     }
     float highRate() {
@@ -64,6 +68,7 @@ final class Retroid {
         if (!supported() || !permitted()) throw new SecurityException("Требуется Nova с Android 13 и доступный сервис Retroid");
         saveOriginal();
         Profile profile=Profiles.get(context,docked);
+        if (docked && requireConnection && !Boolean.TRUE.equals(Detector.sample(context).connected)) return false;
         if (!docked && !controllerMatches(profile)) controller(profile.layout);
         float rate = profile.rate==120 ? highRate() : 60f;
         // Lower min first for 120 -> 60; raise peak first for 60 -> 120.
@@ -74,6 +79,8 @@ final class Retroid {
             else { put("peak_refresh_rate",Float.toString(rate)); put("min_refresh_rate",Float.toString(rate)); }
         }
         if (docked) fan(profile);
+        // Charging changes can trigger Retroid's automatic Smart fan; let both observers settle.
+        bypass(profile);
         put("performance_mode", Integer.toString(profile.performance));
         Thread.sleep(700);
         if (docked && requireConnection && !Boolean.TRUE.equals(Detector.sample(context).connected)) return false;
@@ -93,6 +100,12 @@ final class Retroid {
         if (fanMatches(profile)) return false;
         fan(profile); return true;
     }
+    private void bypass(Profile profile) { put("is_charging_separation",profile.bypassCharging?"1":"0"); }
+    boolean bypassMatches(Profile profile) { return (profile.bypassCharging?"1":"0").equals(get("is_charging_separation")); }
+    boolean restoreBypass(Profile profile) {
+        if (bypassMatches(profile)) return false;
+        bypass(profile); return true;
+    }
     private boolean controllerMatches(Profile profile) {
         return Integer.toString(profile.layout).equals(get("temp_abxy_layout_mode"))
             && (profile.layout==2?"1":"0").equals(get("no_create_gamepad_button_layout"))
@@ -102,7 +115,7 @@ final class Retroid {
         try {
             Profile profile=Profiles.get(context,docked);
             return (profile.rate==0 || (Math.round(Float.parseFloat(get("min_refresh_rate")))==profile.rate && Math.round(Float.parseFloat(get("peak_refresh_rate")))==profile.rate))
-                && Integer.toString(profile.performance).equals(get("performance_mode")) && fanMatches(profile) && controllerMatches(profile);
+                && Integer.toString(profile.performance).equals(get("performance_mode")) && fanMatches(profile) && controllerMatches(profile) && bypassMatches(profile);
         } catch (Exception e) { return false; }
     }
     String actual() {
@@ -114,6 +127,7 @@ final class Retroid {
         String pad = "1".equals(get("no_create_gamepad_button_layout")) ? "Контроллер выключен" : "1".equals(get("flip_button_layout")) ? "Контроллер Xbox" : "Контроллер Retro";
         String hz = get("peak_refresh_rate");
         try { hz = Integer.toString(Math.round(Float.parseFloat(hz))); } catch (Exception ignored) { }
-        return hz + " Гц  ·  " + p + "\n" + f + "  ·  " + pad;
+        String bypass=get("is_charging_separation");
+        return hz + " Гц  ·  " + p + "\n" + f + "  ·  " + pad+"\nОбходная зарядка: "+("1".equals(bypass)?"вкл.":"0".equals(bypass)?"выкл.":"неизвестно");
     }
 }

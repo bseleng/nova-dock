@@ -70,7 +70,7 @@ public final class MainActivity extends Activity {
         root.addView(buttons, spaced());
         root.addView(button("Выключить и применить портативный профиль", () -> { Store.enabled(this, false); DockService.start(this, DockService.STOP); refresh(); }), spaced());
         TextView reset = text("Вернуть настройки, сохранённые до первого запуска", 12, MUTED); reset.setGravity(Gravity.CENTER); reset.setPadding(0,dp(16),0,dp(8));
-        reset.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Восстановить исходные настройки?").setMessage("Автоматика выключится. Вернутся частота, контроллер, вентилятор и производительность, сохранённые до первого применения профиля.").setNegativeButton("Отмена", null).setPositiveButton("Восстановить", (d,w) -> { Store.enabled(this,false); DockService.start(this,DockService.RESTORE); refresh(); }).show()); root.addView(reset);
+        reset.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Восстановить исходные настройки?").setMessage("Автоматика выключится. Вернутся сохранённые исходные настройки частоты, контроллера, вентилятора, производительности и обходной зарядки.").setNegativeButton("Отмена", null).setPositiveButton("Восстановить", (d,w) -> { Store.enabled(this,false); DockService.start(this,DockService.RESTORE); refresh(); }).show()); root.addView(reset);
         String version="";
         try { version=getPackageManager().getPackageInfo(getPackageName(),0).versionName; } catch (Exception ignored) { }
         root.addView(text("Nova Dock "+version+" · Retroid Pocket Nova · Android 13", 11, MUTED));
@@ -126,6 +126,9 @@ public final class MainActivity extends Activity {
         for (int i=0;i<Profile.RATES.length;i++) if (Profile.RATES[i]==profile.rate) rate.setSelection(i);
         content.addView(rate);
         content.addView(text("Тот же параметр, что в плитке частоты Retroid. «Не менять» сохраняет текущую частоту.",11,MUTED));
+        Switch bypass=new Switch(this); bypass.setText("Обходная зарядка"); bypass.setTextSize(15); bypass.setTextColor(TEXT); bypass.setMinHeight(dp(48)); bypass.setChecked(profile.bypassCharging);
+        content.addView(bypass,spaced());
+        content.addView(text("Штатный режим Retroid. Работает при внешнем питании с учётом настроек прошивки.",11,MUTED));
         content.addView(text("Производительность",13,MUTED),spaced());
         Spinner performance=spinner(new String[]{"Standard","Performance","High Performance"}); performance.setSelection(profile.performance); content.addView(performance);
         content.addView(text("Вентилятор",13,MUTED),spaced()); Spinner fan=new Spinner(this); fan.setMinimumHeight(dp(48)); bindFans(fan,profile.performance,profile.fan); content.addView(fan);
@@ -143,7 +146,7 @@ public final class MainActivity extends Activity {
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle(docked?"Профиль: в доке":"Профиль: в руках").setView(scroll).setNegativeButton("Отмена",null).setPositiveButton("Сохранить",null).create();
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             try {
-                Profile selected=new Profile(docked,Profile.RATES[rate.getSelectedItemPosition()],selectedFan(fan),performance.getSelectedItemPosition(),docked?2:layout.getSelectedItemPosition());
+                Profile selected=new Profile(docked,Profile.RATES[rate.getSelectedItemPosition()],selectedFan(fan),performance.getSelectedItemPosition(),docked?2:layout.getSelectedItemPosition(),bypass.isChecked());
                 Profiles.save(this,selected); Store.log(this,(docked?"Профиль дока":"Портативный профиль")+" сохранён");
                 if (Store.enabled(this) && Store.prefs(this).getBoolean("last_docked",false)==docked) DockService.start(this,DockService.REAPPLY);
                 dialog.dismiss(); refresh(); Toast.makeText(this,"Профиль сохранён",Toast.LENGTH_SHORT).show();

@@ -3,11 +3,15 @@ package local.nova.dock;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.view.Display;
 import android.view.InputDevice;
 import java.util.Map;
+import java.util.Objects;
 
 /** Explicit ADB-only instrumentation; no exported activity or broadcast can force a dock profile. */
 public final class DeviceCheck extends Instrumentation {
@@ -30,6 +34,8 @@ public final class DeviceCheck extends Instrumentation {
                 if (Boolean.TRUE.equals(sample.connected)) throw new IllegalStateException("Unplug external display before profile self-test");
                 Store.enabled(c,false); c.stopService(new Intent(c,DockService.class)); Thread.sleep(1500);
                 changed=true;
+                verifyOriginalMigration(c,r);
+                report.append("\noriginalSnapshotMigration=PASS");
                 float beforeHz=c.getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY).getRefreshRate();
                 r.apply(true,false); Thread.sleep(1800);
                 if (!r.matches(true)) throw new IllegalStateException("Dock settings were overridden: "+r.snapshot());
@@ -37,6 +43,7 @@ public final class DeviceCheck extends Instrumentation {
                 int expected=Profiles.get(c,true).rate;
                 if (Math.round(hz)!=(expected==0?Math.round(beforeHz):expected)) throw new IllegalStateException("Actual dock refresh rate="+hz);
                 report.append("\ndock=PASS; actualHz=").append(hz).append("; fanDuty=").append(Detector.read("/sys/class/gpio5_pwm2/duty")).append("; pads=").append(pads());
+                report.append("; bypass=").append(checkBypass(c,r,true));
                 Store.log(c,"Самопроверка: "+Profiles.get(c,true).status());
                 Thread.sleep(2200);
                 beforeHz=hz; r.apply(false,false); Thread.sleep(1800);
@@ -45,17 +52,20 @@ public final class DeviceCheck extends Instrumentation {
                 expected=Profiles.get(c,false).rate;
                 if (Math.round(hz)!=(expected==0?Math.round(beforeHz):expected)) throw new IllegalStateException("Actual handheld refresh rate="+hz);
                 report.append("\nhandheld=PASS; actualHz=").append(hz).append("; fanDuty=").append(Detector.read("/sys/class/gpio5_pwm2/duty")).append("; pads=").append(pads());
+                report.append("; bypass=").append(checkBypass(c,r,false));
                 Store.log(c,"Самопроверка: "+Profiles.get(c,false).status());
                 if ("true".equals(arguments.getString("customProfiles"))) {
                     String min=r.get("min_refresh_rate"), peak=r.get("peak_refresh_rate");
-                    Profiles.save(c,new Profile(true,0,4,1,2));
+                    Profiles.save(c,new Profile(true,0,4,1,2,false));
                     r.apply(true,false); Thread.sleep(1800);
                     if (!r.matches(true) || !min.equals(r.get("min_refresh_rate")) || !peak.equals(r.get("peak_refresh_rate"))) throw new IllegalStateException("Custom dock or keep-rate check failed");
                     report.append("\ncustomDock=PASS; rate=unchanged; fan=Smart; performance=Performance; pads=").append(pads());
-                    Profiles.save(c,new Profile(false,60,5,1,1));
+                    report.append("; bypass=").append(checkBypass(c,r,true));
+                    Profiles.save(c,new Profile(false,60,5,1,1,true));
                     r.apply(false,false); Thread.sleep(1800);
                     if (!r.matches(false) || Math.round(c.getSystemService(DisplayManager.class).getDisplay(0).getRefreshRate())!=60) throw new IllegalStateException("Custom handheld check failed");
                     report.append("\ncustomHandheld=PASS; rate=60; fan=Sport; performance=Performance; layout=Retro; pads=").append(pads());
+                    report.append("; bypass=").append(checkBypass(c,r,false));
                 }
             }
             report.append("\nPASS");
@@ -63,12 +73,50 @@ public final class DeviceCheck extends Instrumentation {
         finally {
             if (changed) {
                 Profiles.restore(c,originalProfiles);
-                try { r.restore(original); report.append("\noriginalSettingsRestored=true"); }
+                try {
+                    r.restore(original); Thread.sleep(1200L);
+                    for (Map.Entry<String,String> entry:original.entrySet()) if (!Objects.equals(entry.getValue(),r.get(entry.getKey()))) throw new IllegalStateException("Original value not restored: "+entry.getKey());
+                    report.append("\noriginalSettingsRestored=true");
+                }
                 catch (Exception e) { report.append("\nrestoreFailed=").append(e); code=0; }
                 Store.enabled(c,wasEnabled);
                 if (wasEnabled) report.append("\nreopenNovaDockToResumeAutomation=true");
             }
             result.putString("stream", report.toString()+"\n"); finish(code,result);
+        }
+    }
+    private static String checkBypass(Context c,Retroid r,boolean docked) {
+        Profile profile=Profiles.get(c,docked);
+        if (!r.bypassMatches(profile)) throw new IllegalStateException("Bypass setting mismatch");
+        String driver=Detector.read("/sys/class/qcom-battery/usb_charge_now");
+        Intent battery=c.registerReceiver(null,new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        boolean powered=battery!=null && battery.getIntExtra("plugged",0)!=0;
+        boolean autoLimit="true".equals(Detector.property("persist.is.auto.charging.separate"));
+        if (powered && c.getSystemService(PowerManager.class).isInteractive() && !autoLimit && !driver.isEmpty()
+            && !(profile.bypassCharging?"0":"1").equals(driver)) throw new IllegalStateException("Charging driver mismatch: "+driver);
+        return r.get("is_charging_separation")+", usb_charge_now="+driver;
+    }
+    private static void verifyOriginalMigration(Context c,Retroid r) {
+        SharedPreferences prefs=Store.prefs(c); Map<String,?> before=prefs.getAll();
+        String key="is_charging_separation", present="present_"+key, original="original_"+key;
+        boolean hadMarker=prefs.contains(present), wasPresent=prefs.getBoolean(present,false);
+        String oldOriginal=prefs.getString(original,null), current=r.get(key);
+        // Emulate a snapshot made by 0.2.x, which did not manage bypass charging.
+        prefs.edit().remove(present).remove(original).commit();
+        try {
+            r.saveOriginal();
+            Map<String,?> after=prefs.getAll();
+            for (String managed:Retroid.KEYS) {
+                if (managed.equals(key)) continue;
+                for (String prefix:new String[]{"present_","original_"}) {
+                    String name=prefix+managed;
+                    if (before.containsKey(name) && !Objects.equals(before.get(name),after.get(name))) throw new IllegalStateException("Original snapshot overwritten: "+name);
+                }
+            }
+            if (!prefs.contains(present) || prefs.getBoolean(present,false)!=(current!=null)
+                || !Objects.equals(current,prefs.getString(original,null))) throw new IllegalStateException("New original value not captured");
+        } finally {
+            if (hadMarker) prefs.edit().putBoolean(present,wasPresent).putString(original,oldOriginal).commit();
         }
     }
     private static String pads() {

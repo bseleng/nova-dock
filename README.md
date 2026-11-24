@@ -7,7 +7,7 @@
 
 Configurable docked and handheld profiles for **Retroid Pocket Nova**. Choose the refresh rate, fan and performance preset for each mode, and the built-in controller layout to restore when undocking.
 
-**[Download APK](https://github.com/bseleng/nova-dock/releases/tag/v0.2.0)** · **[Русская документация](docs/README.ru.md)** · **[Report an issue](https://github.com/bseleng/nova-dock/issues/new?template=bug_report.yml)**
+**[Download APK](https://github.com/bseleng/nova-dock/releases/tag/v0.3.0)** · **[Русская документация](docs/README.ru.md)** · **[Report an issue](https://github.com/bseleng/nova-dock/issues/new?template=bug_report.yml)**
 
 > **Early prototype.** A physical dock/undock cycle has been confirmed by the owner on a real Nova. Configurable presets are tested on the device. Reboot recovery, long-term behavior and other firmware versions remain unverified.
 
@@ -19,6 +19,7 @@ Configurable docked and handheld profiles for **Retroid Pocket Nova**. Choose th
 | Built-in controller | Disabled | Xbox layout |
 | Fan | Maximum | Quiet |
 | Performance | High Performance | Standard |
+| Bypass charging | **Enabled** | **Disabled** |
 
 ## Customize each profile
 
@@ -27,6 +28,7 @@ Tap **Настроить** / Configure on either profile card:
 - **Refresh rate:** Leave unchanged, 60 Hz or 120 Hz, independently for each profile.
 - **Fan:** Off, Quiet, Smart, Sport or Maximum, where supported by the selected performance preset.
 - **Performance:** Standard, Performance or High Performance.
+- **Bypass charging:** an independent switch in each profile; on by default in the dock and off in handheld mode.
 - **Handheld controller:** Xbox or Retro. The built-in controller remains disabled in the docked profile.
 
 Changes are saved on the device. Editing the currently active profile applies it immediately when automation is enabled. Defaults preserve the original 60 Hz dock / 120 Hz handheld behavior.
@@ -39,22 +41,24 @@ Changes are saved on the device. Editing the currently active profile applies it
 
 These combinations follow the stock quick settings UI. The refresh option controls the same Retroid setting as the frequency tile. **Leave unchanged** does not write either refresh-rate setting; it does not restore an earlier rate. External display modes are still negotiated by the firmware.
 
+Bypass charging uses Retroid's stock charging-separation mode. Charging limits and sleep behavior remain controlled by the firmware. Upgrading adds the new defaults while preserving existing profile choices and original-setting snapshots.
+
 ## Screenshots
 
-Captured directly from the Retroid Pocket Nova running version 0.2.0 (1280 × 960). Open a caption to view the original screenshot.
+Captured directly from the Retroid Pocket Nova running version 0.3.0 (1280 × 960). Open a caption to view the original screenshot.
 
 | [Main screen](docs/images/overview.png) | [Profile cards](docs/images/profiles.png) |
 |---|---|
 | <img src="docs/images/overview.png" width="420" alt="Nova Dock main screen with automation enabled"> | <img src="docs/images/profiles.png" width="420" alt="Docked and handheld profile cards"> |
 | [Docked profile editor](docs/images/dock-profile.png) | [Handheld profile editor](docs/images/handheld-profile.png) |
-| <img src="docs/images/dock-profile.png" width="420" alt="Docked profile refresh rate, performance and fan settings"> | <img src="docs/images/handheld-profile.png" width="420" alt="Handheld profile settings scrolled to the controller layout"> |
+| <img src="docs/images/dock-profile.png" width="420" alt="Docked profile with bypass charging enabled"> | <img src="docs/images/handheld-profile.png" width="420" alt="Handheld profile with bypass charging disabled"> |
 
 
 Nova Dock leaves Retroid's built-in **turn off the internal screen when connected to a TV** option in control of the display backlight.
 
 ## Getting started
 
-1. Download and install the APK from [Releases](https://github.com/bseleng/nova-dock/releases/tag/v0.2.0).
+1. Download and install the APK from [Releases](https://github.com/bseleng/nova-dock/releases/tag/v0.3.0).
 2. Open **Nova Dock**, configure the two profiles if needed, and enable **Автоматический режим** / automatic mode.
 3. Allow notifications so the current profile and stop action remain accessible.
 4. Connect or disconnect your external display. Allow about **5 seconds** for the connection to settle and the profile to apply.
@@ -70,11 +74,12 @@ Turning automation off restores the handheld profile. The app can also restore t
 - Waits for a stable connection and ignores unknown sensor states.
 - Applies the same system settings used by Retroid's quick settings tiles.
 - Reapplies and verifies the fan setting after firmware performance/fan coupling settles.
-- Rechecks the saved fan preset after power-status and wake events, when stock firmware can switch it to Smart. This correction does not reconnect the controller.
+- Rechecks the saved fan and bypass presets after power-status and wake events. Charging changes settle before the fan is restored, without reconnecting the controller.
+- Extends the saved original-settings snapshot only for newly managed settings, preserving older original values.
 - Runs a foreground service with a notification and supports startup after boot when enabled.
 - Has no internet permission, analytics, game-file access or emulator configuration changes.
 
-Retroid's stock **`PServerBinder`** service executes the settings commands with its own privileged identity. Nova Dock does not install root access. This is a vendor-specific interface, not a public Android API; an OTA can change its availability. The command adapter accepts only a fixed list of eight settings and numeric values, and exposes no external command-execution endpoint.
+Retroid's stock **`PServerBinder`** service executes the settings commands with its own privileged identity. Nova Dock does not install root access. This is a vendor-specific interface, not a public Android API; an OTA can change its availability. The command adapter accepts only a fixed list of nine settings and numeric values, and exposes no external command-execution endpoint.
 
 <details>
 <summary>System settings used</summary>
@@ -88,9 +93,10 @@ fan_speed
 temp_abxy_layout_mode
 no_create_gamepad_button_layout
 flip_button_layout
+is_charging_separation
 ```
 
-On the tested firmware, Standard is `performance_mode=0`, High Performance is `2`, Quiet is `fan_mode=1`, and maximum custom fan speed is `fan_mode=6` with `fan_speed=35000`. Thermal protection is not modified.
+On the tested firmware, Standard is `performance_mode=0`, High Performance is `2`, Quiet is `fan_mode=1`, and maximum custom fan speed is `fan_mode=6` with `fan_speed=35000`. Bypass charging is `is_charging_separation=1`; normal charging is `0`. Thermal protection is not modified.
 
 </details>
 
@@ -111,6 +117,8 @@ The owner completed a real TV connection/disconnection cycle with the initial pr
 
 In 0.2.0, on-device tests also verified Smart/Performance while leaving frequency unchanged, and Sport/Performance/Retro at 60 Hz. A simulated charging-status change reproduced the stock Smart override; the saved Quiet preset was restored in about 1.7 seconds without changing the controller device ID or refresh settings.
 
+In 0.3.0, the stock bypass switch and the charging driver were verified in both directions: enabled produced `usb_charge_now=0`, disabled produced `1`. Tests covered the opposite user choices, saving from the real UI, upgrading an older original-settings snapshot and restoring all nine previous setting values. Existing profile choices were preserved.
+
 Actual reboot recovery, long-term background survival, objective TV frame-pacing measurements and each emulator's controller/session handling remain unverified. The app currently accepts only Nova on Android 13.
 
 ## Build
@@ -123,7 +131,7 @@ cd nova-dock
 python3 build.py
 ```
 
-Output: `dist/Nova-Dock-0.2.0.apk`. The build verifies the APK signature and runs the connection-state tests.
+Output: `dist/Nova-Dock-0.3.0.apk`. The build verifies the APK signature and runs the connection-state tests.
 
 Optional variables: `ANDROID_SDK_ROOT` / `ANDROID_HOME`, `NOVA_JAVA_HOME` / `JAVA_HOME`, `NOVA_BUILD_DIR`, `NOVA_APK_PATH`.
 
@@ -139,7 +147,7 @@ Read-only diagnostic:
 adb shell am instrument -w local.nova.dock/.DeviceCheck
 ```
 
-Test both profiles **with the external display disconnected**. This temporarily changes the eight settings and restores the previous values afterward:
+Test both profiles **with the external display disconnected**. This temporarily changes the nine settings and restores the previous values afterward:
 
 ```sh
 adb shell am instrument -w -e profiles true local.nova.dock/.DeviceCheck

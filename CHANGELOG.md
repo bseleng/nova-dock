@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 — 2026-11-24
+
+- Added a bypass-charging switch to each profile: enabled by default in the dock, disabled in handheld mode.
+- Preserved existing profile choices when adding the new setting.
+- Integrated the stock `is_charging_separation` setting into application, verification and original-setting restoration.
+- Extended original-setting snapshots only for missing keys, preserving earlier original values.
+- Settled charging changes before restoring the fan, avoiding a late Smart override when normal charging resumes.
+- Added device checks for the charging driver, inverse user choices, snapshot migration and exact restoration of all nine settings.
+
 ## 0.2.0 — 2026-11-24
 
 - Added separate editable docked and handheld profiles.

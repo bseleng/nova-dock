@@ -6,16 +6,20 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 final class Profiles {
-    static final String[] KEYS={"profile_dock_rate","profile_dock_fan","profile_dock_performance","profile_handheld_rate","profile_handheld_fan","profile_handheld_performance","profile_handheld_layout"};
+    static final String[] KEYS={"profile_dock_rate","profile_dock_fan","profile_dock_performance","profile_dock_bypass","profile_handheld_rate","profile_handheld_fan","profile_handheld_performance","profile_handheld_layout","profile_handheld_bypass"};
     static Profile get(Context c, boolean docked) {
         SharedPreferences p=Store.prefs(c); Profile d=Profile.defaults(docked);
         String prefix=docked?"profile_dock_":"profile_handheld_";
-        try { return new Profile(docked,p.getInt(prefix+"rate",d.rate),p.getInt(prefix+"fan",d.fan),p.getInt(prefix+"performance",d.performance),docked?2:p.getInt(prefix+"layout",d.layout)); }
+        try {
+            int bypass=p.getInt(prefix+"bypass",d.bypassCharging?1:0);
+            if (bypass!=0 && bypass!=1) throw new IllegalArgumentException("Неизвестный режим зарядки");
+            return new Profile(docked,p.getInt(prefix+"rate",d.rate),p.getInt(prefix+"fan",d.fan),p.getInt(prefix+"performance",d.performance),docked?2:p.getInt(prefix+"layout",d.layout),bypass==1);
+        }
         catch (IllegalArgumentException | ClassCastException e) { return d; }
     }
     static void save(Context c, Profile profile) {
         String prefix=profile.docked?"profile_dock_":"profile_handheld_";
-        SharedPreferences.Editor edit=Store.prefs(c).edit().putInt(prefix+"rate",profile.rate).putInt(prefix+"fan",profile.fan).putInt(prefix+"performance",profile.performance);
+        SharedPreferences.Editor edit=Store.prefs(c).edit().putInt(prefix+"rate",profile.rate).putInt(prefix+"fan",profile.fan).putInt(prefix+"performance",profile.performance).putInt(prefix+"bypass",profile.bypassCharging?1:0);
         if (!profile.docked) edit.putInt(prefix+"layout",profile.layout);
         if (!edit.commit()) throw new IllegalStateException("Не удалось сохранить профиль");
     }

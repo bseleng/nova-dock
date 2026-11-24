@@ -27,7 +27,7 @@ public final class DockService extends Service {
     private Boolean attempted;
     private int failures;
     private int lastPowerState=Integer.MIN_VALUE;
-    private final Runnable fanCheck=() -> checkFan();
+    private final Runnable powerCheck=() -> checkPowerSettings();
     private final StableConnection stable = new StableConnection();
     private final Runnable inspect = () -> inspect();
     private final Runnable poll = new Runnable() {
@@ -51,8 +51,8 @@ public final class DockService extends Service {
             }
             signal();
             if (worker!=null && running) worker.post(() -> {
-                worker.removeCallbacks(fanCheck);
-                worker.postDelayed(fanCheck,1600L);
+                worker.removeCallbacks(powerCheck);
+                worker.postDelayed(powerCheck,1600L);
             });
         }
     };
@@ -147,18 +147,27 @@ public final class DockService extends Service {
             worker.postDelayed(() -> verify(mode, 0), 1200L);
         } catch (Exception e) { failures++; error(e); }
     }
-    private void checkFan() {
+    private void checkPowerSettings() {
         if (!running || !Store.enabled(this) || applied==null) return;
         if (!applied.equals(Detector.sample(this).connected)) return;
         try {
             Profile profile=Profiles.get(this,applied);
-            if (retroid.restoreFan(profile)) {
-                Store.log(this,"Вентилятор восстановлен: "+Profile.fanLabel(profile.fan)+" · событие питания/экрана");
+            boolean bypassRestored=retroid.restoreBypass(profile);
+            if (bypassRestored) Thread.sleep(700L);
+            if (!running || !Store.enabled(this) || !Boolean.valueOf(profile.docked).equals(Detector.sample(this).connected)) return;
+            Profile latest=Profiles.get(this,profile.docked);
+            if (profile.fan!=latest.fan || profile.bypassCharging!=latest.bypassCharging) return;
+            boolean fanRestored=retroid.restoreFan(profile);
+            if (fanRestored) Store.log(this,"Вентилятор восстановлен: "+Profile.fanLabel(profile.fan)+" · событие питания/экрана");
+            if (bypassRestored) Store.log(this,"Обходная зарядка восстановлена: "+(profile.bypassCharging?"вкл.":"выкл.")+" · событие питания/экрана");
+            if (fanRestored || bypassRestored) {
                 worker.postDelayed(() -> {
                     if (running && Store.enabled(this) && Boolean.valueOf(profile.docked).equals(applied)
                         && Boolean.valueOf(profile.docked).equals(Detector.sample(this).connected)
-                        && profile.fan==Profiles.get(this,profile.docked).fan && !retroid.fanMatches(profile))
-                        error(new IllegalStateException("Прошивка повторно изменила режим вентилятора"));
+                        && profile.fan==Profiles.get(this,profile.docked).fan
+                        && profile.bypassCharging==Profiles.get(this,profile.docked).bypassCharging
+                        && (!retroid.fanMatches(profile) || !retroid.bypassMatches(profile)))
+                        error(new IllegalStateException("Прошивка повторно изменила настройки питания/вентилятора"));
                 },1600L);
             }
         } catch (Exception e) { error(e); }
