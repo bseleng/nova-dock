@@ -6,7 +6,7 @@ public final class SettingChangesTest {
     }
     private static void dependentFanOrder(boolean docked) {
         SettingChanges queue=new SettingChanges();
-        Profile high=new Profile(docked,120,6,2,0,docked);
+        Profile high=new Profile(docked,120,6,2,docked?2:0,docked);
         SettingChanges.Request bypass=queue.offer(high.next(Profile.BYPASS),Profile.BYPASS);
         check(queue.take()==bypass,"The worker must already be settling bypass before the burst");
 
@@ -51,6 +51,7 @@ public final class SettingChangesTest {
         check(queue.take()==null,"Duplicate service wake-ups must not replay changes");
         check(!queue.current(first),"A superseded request must not begin another application");
         check(queue.current(second),"The latest in-flight request must remain current");
+        check(queue.target(false,Profile.PERFORMANCE)==second,"A recreated activity must retain the latest in-flight optimistic target");
         check(!queue.acknowledged(false,Profile.PERFORMANCE,second.revision),"Taking a request must not acknowledge it");
 
         SettingChanges.Request third=queue.offer(handheld,Profile.PERFORMANCE);
@@ -62,6 +63,7 @@ public final class SettingChangesTest {
         queue.complete(third);
         check(queue.acknowledged(false,Profile.PERFORMANCE,third.revision),"The final request must receive an ACK");
         check(!queue.current(third),"An acknowledged request must never be applied again");
+        check(queue.target(false,Profile.PERFORMANCE)==null,"An ACK must release the shared optimistic target");
         check(queue.take()==null,"A finished burst must leave no deferred replay");
 
         SettingChanges.Request fan=queue.offer(handheld.next(Profile.FAN),Profile.FAN);

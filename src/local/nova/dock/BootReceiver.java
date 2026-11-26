@@ -11,11 +11,11 @@ public final class BootReceiver extends BroadcastReceiver {
         ControlState state=Store.state(context);
         boolean boot=Intent.ACTION_BOOT_COMPLETED.equals(a);
         if (!state.shouldResume(boot,Store.startOnBoot(context))) {
-            if (state.managed && boot) Store.log(context,"Автозапуск пропущен · Выключен в настройках");
+            if (state.managed && boot) Store.event(context,"boot_skipped");
             return;
         }
         // Replacing the APK resumes a managed session even when boot startup is disabled.
         try { DockService.start(context, null); }
-        catch (Exception e) { Store.log(context,"Не удалось возобновить управление: "+e.getMessage()); }
+        catch (Exception e) { Store.event(context,"resume_failed",e instanceof Failure?((Failure)e).code:"unknown",e instanceof Failure?((Failure)e).detail:e.getClass().getSimpleName()); }
     }
 }

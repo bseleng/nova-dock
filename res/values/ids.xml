@@ -1,0 +1,15 @@
+<resources>
+    <item name="action_settings" type="id"/><item name="action_log" type="id"/><item name="title" type="id"/>
+    <item name="manual_docked" type="id"/><item name="manual_handheld" type="id"/>
+    <item name="toggle_automatic" type="id"/><item name="toggle_start_on_boot" type="id"/>
+    <item name="toggle_screen_off" type="id"/><item name="toggle_show_refresh" type="id"/>
+    <item name="language" type="id"/><item name="output_mode" type="id"/><item name="output_aspect" type="id"/>
+    <item name="dock_output" type="id"/><item name="handheld_output" type="id"/>
+    <item name="action_clear_log" type="id"/><item name="action_close_dialog" type="id"/><item name="journal_list" type="id"/>
+    <item name="action_keep_output" type="id"/>
+    <item name="journal_order" type="id"/><item name="journal_summary" type="id"/>
+    <item name="hold_hint" type="id"/>
+    <item name="action_restore_settings" type="id"/>
+    <item name="dock_rate" type="id"/><item name="dock_performance" type="id"/><item name="dock_fan" type="id"/><item name="dock_bypass" type="id"/><item name="dock_controller" type="id"/>
+    <item name="handheld_rate" type="id"/><item name="handheld_performance" type="id"/><item name="handheld_fan" type="id"/><item name="handheld_bypass" type="id"/><item name="handheld_controller" type="id"/>
+</resources>

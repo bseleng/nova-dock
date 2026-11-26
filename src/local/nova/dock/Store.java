@@ -21,24 +21,42 @@ final class Store {
     private static void save(Context c,ControlState state) {
         if (!prefs(c).edit().putBoolean("managed",state.managed).putBoolean("enabled",state.automatic)
             .putBoolean("manual_docked",state.manualDocked).putBoolean("last_docked",state.lastDocked).commit())
-            throw new IllegalStateException("Не удалось сохранить режим управления");
+            throw new Failure("control_save_failed");
     }
     static synchronized void automatic(Context c,boolean enabled) { save(c,state(c).automatic(enabled)); }
     static synchronized void manual(Context c,boolean docked) { save(c,state(c).manual(docked)); }
     static synchronized void applied(Context c,boolean docked) { save(c,state(c).applied(docked)); }
-    static synchronized void syncManual(Context c,boolean docked) {
+    static synchronized void syncManual(Context c,Boolean settled) {
         ControlState state=state(c);
-        if (!state.automatic) save(c,new ControlState(state.managed,false,docked,state.lastDocked));
+        if (!state.automatic) save(c,state.freezeManual(settled));
     }
     static synchronized void stop(Context c) { save(c,state(c).stopped()); }
     static boolean startOnBoot(Context c) { return prefs(c).getBoolean("start_on_boot",true); }
     static void startOnBoot(Context c,boolean enabled) { prefs(c).edit().putBoolean("start_on_boot",enabled).commit(); }
-    static synchronized void log(Context c, String message) {
-        Log.i("NovaDock", message);
-        String line = new SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(new Date()) + "  " + message;
-        String history = line + "\n" + prefs(c).getString("history", "");
-        if (history.length() > 12000) history = history.substring(0, 12000);
-        prefs(c).edit().putString("history", history).apply();
+    static synchronized LogBuffer history(Context c) {
+        String before=prefs(c).getString("history",""); LogBuffer buffer=new LogBuffer(before);
+        if (!before.equals(buffer.data())) prefs(c).edit().putString("history",buffer.data()).apply();
+        return buffer;
     }
-    static void status(Context c, String text) { prefs(c).edit().putString("status", text).apply(); }
+    static synchronized void clearHistory(Context c) { prefs(c).edit().putString("history","").commit(); }
+    static synchronized void event(Context c,String code,String...args) {
+        String time=new SimpleDateFormat("HH:mm:ss",Locale.ROOT).format(new Date());
+        String record=LogEvent.encode(time,code,args);
+        Log.i("NovaDock",code);
+        prefs(c).edit().putString("history",history(c).append(record).data()).apply();
+    }
+    static synchronized void log(Context c,String legacyMessage) {
+        String time=new SimpleDateFormat("HH:mm:ss",Locale.ROOT).format(new Date());
+        prefs(c).edit().putString("history",history(c).append(time+"  "+legacyMessage).data()).apply();
+    }
+    static String statusCode(Context c) { return prefs(c).getString("status_code","idle"); }
+    static void status(Context c,String code,String argument) {
+        prefs(c).edit().putString("status_code",code).putString("status_argument",argument==null?"":argument).remove("status").apply();
+    }
+    static void failure(Context c,Throwable error) {
+        String code=error instanceof Failure?((Failure)error).code:error.getMessage();
+        String detail=error instanceof Failure?((Failure)error).detail:"";
+        prefs(c).edit().putString("status_code","error").putString("status_argument",code==null?"unknown":code).putString("status_detail",detail).remove("status").apply();
+        event(c,"error",code,detail);
+    }
 }

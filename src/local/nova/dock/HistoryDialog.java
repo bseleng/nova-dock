@@ -1,122 +1,89 @@
 package local.nova.dock;
 
 import android.app.Activity;
-import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
-import android.util.DisplayMetrics;
 import android.view.Gravity;
-import android.view.Window;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.BaseAdapter;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
+import android.widget.ListView;
 import android.widget.TextView;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.ArrayList;
+import java.util.List;
 
-/** Formats legacy transition history without changing or discarding stored entries. */
+/** Only visible rows allocate views. The stored buffer is bounded on append/migration, never by a timer. */
 final class HistoryDialog {
-    private static final int TEXT=0xffedf6f3, MUTED=0xff9bb2ad, MINT=0xff74e3cc, LILAC=0xffbeb1f7;
-    private static final Pattern LINE=Pattern.compile("^(\\d{2}:\\d{2}:\\d{2})\\s{2}(.*)$");
     private final Activity activity;
-    private HistoryDialog(Activity activity) { this.activity=activity; }
-    static void show(Activity activity) { new HistoryDialog(activity).open(); }
-
-    private void open() {
-        Dialog dialog=new Dialog(activity); dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        LinearLayout root=column(); root.setPadding(dp(18),dp(10),dp(18),dp(14));
-        root.setBackground(shape(0xff182427,24)); root.setClipToOutline(true);
-        LinearLayout header=new LinearLayout(activity); header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title=text("Журнал",22,TEXT); title.setTypeface(null,Typeface.BOLD);
-        header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        TextView close=text("Закрыть",14,MINT); close.setGravity(Gravity.CENTER); close.setPadding(dp(10),0,dp(10),0);
-        GamepadControls.style(close,0xff243639,MINT,14);
-        close.setOnClickListener(v->dialog.dismiss());
-        header.addView(close,new LinearLayout.LayoutParams(-2,dp(44))); root.addView(header);
-        TextView subtitle=text("Последние события · новые сверху",12,MUTED); subtitle.setPadding(0,dp(3),0,dp(14)); root.addView(subtitle);
-        ScrollView scroll=new ScrollView(activity); scroll.setClipToPadding(false);
-        LinearLayout entries=column(); scroll.addView(entries);
-        String history=Store.prefs(activity).getString("history","");
-        if (history.trim().isEmpty()) {
-            TextView empty=text("Событий пока нет. Здесь появятся запуск автоматики, смена профилей и изменения настроек.",15,MUTED);
-            empty.setPadding(dp(14),dp(24),dp(14),dp(24)); entries.addView(empty);
-        } else for (String raw:history.split("\n")) {
-            if (raw.trim().isEmpty()) continue;
-            Entry entry=new Entry(raw);
-            LinearLayout row=new LinearLayout(activity); row.setGravity(Gravity.TOP);
-            row.setPadding(dp(12),dp(12),dp(12),dp(12)); row.setBackground(shape(0xff233236,15));
-            TextView time=text(entry.time,18,MUTED); time.setTypeface(Typeface.MONOSPACE,Typeface.NORMAL);
-            time.setSingleLine(true);
-            int timeWidth=Math.max(dp(96),(int)Math.ceil(time.getPaint().measureText("00:00:00"))+dp(12));
-            row.addView(time,new LinearLayout.LayoutParams(timeWidth,-2));
-            LinearLayout content=column();
-            LinearLayout event=new LinearLayout(activity); event.setGravity(Gravity.CENTER_VERTICAL);
-            TextView name=text(entry.title,14,TEXT); name.setTypeface(null,Typeface.BOLD);
-            event.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-            TextView badge=text(entry.badge,9,entry.color); badge.setTypeface(null,Typeface.BOLD); badge.setPadding(dp(8),dp(4),dp(8),dp(4));
-            badge.setBackground(shape((entry.color&0x00ffffff)|0x18000000,8));
-            LinearLayout.LayoutParams tag=new LinearLayout.LayoutParams(-2,-2); tag.leftMargin=dp(8); event.addView(badge,tag);
-            content.addView(event);
-            if (!entry.detail.isEmpty()) {
-                TextView detail=text(entry.detail,12,MUTED); detail.setPadding(0,dp(5),0,0); detail.setLineSpacing(dp(2),1f); detail.setTextIsSelectable(true); content.addView(detail);
-            }
-            row.addView(content,new LinearLayout.LayoutParams(0,-2,1));
-            LinearLayout.LayoutParams item=new LinearLayout.LayoutParams(-1,-2); item.bottomMargin=dp(9); entries.addView(row,item);
-        }
-        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        dialog.setContentView(root); dialog.show();
-        GamepadControls.attach(dialog);
-        DisplayMetrics screen=activity.getResources().getDisplayMetrics();
-        Window window=dialog.getWindow(); window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        window.setDimAmount(.65f);
-        window.setLayout(Math.min(screen.widthPixels-dp(28),dp(960)),Math.min(screen.heightPixels-dp(56),dp(720)));
-        close.setFocusableInTouchMode(true); close.requestFocus();
+    final NativeDialog panel;
+    private final Entries adapter=new Entries();
+    private final TextView summary;
+    private final Runnable changed=this::reload;
+    private String shown;
+    HistoryDialog(Activity activity,View returnFocus) {
+        this.activity=activity; panel=new NativeDialog(activity,R.string.history_title,returnFocus,true);
+        panel.setLeftHoldAction(R.string.action_clear,R.id.action_clear_log,this::clear);
+        LinearLayout metadata=new LinearLayout(activity); metadata.setGravity(Gravity.CENTER_VERTICAL);
+        metadata.setPadding(0,dp(4),0,dp(8));
+        TextView subtitle=NativeDialog.text(activity,activity.getString(R.string.history_newest_first),10,NativeDialog.MUTED);
+        subtitle.setId(R.id.journal_order);
+        metadata.addView(subtitle,new LinearLayout.LayoutParams(0,-2,1));
+        summary=NativeDialog.text(activity,"",10,NativeDialog.MUTED); summary.setId(R.id.journal_summary); summary.setGravity(Gravity.END);
+        LinearLayout.LayoutParams statsLayout=new LinearLayout.LayoutParams(-2,-2); statsLayout.leftMargin=dp(12);
+        metadata.addView(summary,statsLayout); panel.root.addView(metadata,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout listArea=NativeDialog.column(activity);
+        ListView list=new ListView(activity); list.setId(R.id.journal_list); list.setAdapter(adapter); list.setItemsCanFocus(false);
+        GradientDrawable selection=NativeDialog.shape(activity,Color.TRANSPARENT,15); selection.setStroke(dp(2),NativeDialog.ACCENT);
+        list.setDivider(new ColorDrawable(0)); list.setDividerHeight(dp(6)); list.setSelector(selection); list.setDrawSelectorOnTop(true); list.setCacheColorHint(Color.TRANSPARENT);
+        TextView empty=NativeDialog.text(activity,activity.getString(R.string.history_empty),13,NativeDialog.MUTED); empty.setGravity(Gravity.CENTER); empty.setPadding(dp(14),dp(24),dp(14),dp(24));
+        listArea.addView(list,new LinearLayout.LayoutParams(-1,-1)); listArea.addView(empty,new LinearLayout.LayoutParams(-1,-1)); list.setEmptyView(empty);
+        panel.root.addView(listArea,new LinearLayout.LayoutParams(-1,0,1));
+        panel.dismissed=()->DockService.unobserve(changed); DockService.observe(changed); reload(); panel.show(true,null);
     }
-
-    static final class Entry {
-        String time="—", title, detail="", badge="СОБЫТИЕ";
-        int color=MUTED;
-        Entry(String raw) {
-            Matcher match=LINE.matcher(raw);
-            String message=raw;
-            if (match.matches()) { time=match.group(1); message=match.group(2); }
-            title=message;
-            String[] parts=message.split(" · ",2);
-            if (parts.length==2) { title=parts[0]; detail=parts[1]; }
-            if (message.startsWith("Ошибка: ")) {
-                title="Ошибка применения"; detail=message.substring("Ошибка: ".length()); badge="ОШИБКА"; color=0xfff4aaa9;
-            } else if (message.startsWith("Профиль дока сохранён")) {
-                title="Профиль дока"; badge="СОХРАНЁН"; color=MINT;
-            } else if (message.startsWith("Портативный профиль сохранён")) {
-                title="Портативный профиль"; badge="СОХРАНЁН"; color=LILAC;
-            } else if (message.startsWith("В доке ·")) {
-                title="Профиль дока"; badge="ПРИМЕНЁН"; color=MINT;
-            } else if (message.startsWith("Портативный режим ·")) {
-                title="Портативный профиль"; badge="ПРИМЕНЁН"; color=LILAC;
-            } else if (message.equals("Автоматика запущена")) {
-                title="Автоматика"; badge="ЗАПУЩЕНА"; color=MINT; detail="Запуск фоновой службы";
-            } else if (message.startsWith("Автоматика выключена")) {
-                title="Автоматика"; badge="ВЫКЛЮЧЕНА";
-            } else if (message.startsWith("Настройка применена")) {
-                title="Настройка"; badge="ПРИМЕНЕНА"; color=MINT;
-            } else if (message.equals("Автозапуск включён")) {
-                title="Автозапуск"; badge="ВКЛЮЧЁН"; color=MINT; detail="Возобновление после перезагрузки разрешено";
-            } else if (message.equals("Автозапуск выключен")) {
-                title="Автозапуск"; badge="ВЫКЛЮЧЕН"; detail="После перезагрузки служба сама не запустится";
-            } else if (message.startsWith("Автозапуск пропущен")) {
-                title="Автозапуск"; badge="ПРОПУЩЕН";
-            } else if (message.startsWith("Вентилятор восстановлен: ")) {
-                title="Вентилятор"; badge="ВОССТАНОВЛЕН"; color=MINT; detail=message.substring("Вентилятор восстановлен: ".length());
-            } else if (message.startsWith("Обходная зарядка восстановлена: ")) {
-                title="Обходная зарядка"; badge="ВОССТАНОВЛЕНА"; color=MINT; detail=message.substring("Обходная зарядка восстановлена: ".length());
-            } else if (message.startsWith("Повторная проверка профиля:")) {
-                title="Проверка профиля"; badge="ПОВТОР"; color=0xffeed39b; detail=message;
-            }
+    private void reload() {
+        LogBuffer buffer=Store.history(activity);
+        if (!buffer.data().equals(shown)) {
+            shown=buffer.data(); adapter.items.clear(); for (String line:buffer.records()) adapter.items.add(LogText.item(activity,line)); adapter.notifyDataSetChanged();
+        }
+        summary.setText(activity.getString(R.string.history_summary,AppText.entries(activity,buffer.count()),AppText.bytes(activity,buffer.bytes()),AppText.bytes(activity,LogBuffer.MAX_BYTES)));
+    }
+    private void clear() {
+        Store.clearHistory(activity); reload();
+    }
+    void dismiss() { panel.dialog.dismiss(); }
+    private int dp(int value) { return NativeDialog.dp(activity,value); }
+    private final class Entries extends BaseAdapter {
+        final List<LogText.Item> items=new ArrayList<>();
+        public int getCount() { return items.size(); }
+        public Object getItem(int position) { return items.get(position); }
+        public long getItemId(int position) { return position; }
+        public View getView(int position,View convert,ViewGroup parent) {
+            Row holder;
+            if (convert==null) { holder=new Row(); convert=holder.root; convert.setTag(holder); } else holder=(Row)convert.getTag();
+            LogText.Item item=items.get(position); holder.time.setText(item.time); holder.title.setText(item.title); holder.badge.setText(item.badge); holder.badge.setTextColor(item.color);
+            holder.badge.setBackground(NativeDialog.shape(activity,(item.color&0x00ffffff)|0x18000000,8));
+            holder.detail.setText(item.detail); holder.detail.setVisibility(item.detail.isEmpty()?View.GONE:View.VISIBLE);
+            holder.root.setContentDescription(item.time+". "+item.title+". "+item.badge+(item.detail.isEmpty()?"":". "+item.detail)); return convert;
         }
     }
-    private int dp(int n) { return Math.round(n*activity.getResources().getDisplayMetrics().density); }
-    private LinearLayout column() { LinearLayout l=new LinearLayout(activity); l.setOrientation(LinearLayout.VERTICAL); return l; }
-    private TextView text(String s,int size,int color) { TextView t=new TextView(activity); t.setText(s); t.setTextSize(size); t.setTextColor(color); return t; }
-    private GradientDrawable shape(int color,int radius) { GradientDrawable s=new GradientDrawable(); s.setColor(color); s.setCornerRadius(dp(radius)); return s; }
+    private final class Row {
+        final LinearLayout root;
+        final TextView time,title,badge,detail;
+        Row() {
+            root=new LinearLayout(activity); root.setGravity(Gravity.TOP); root.setPadding(dp(10),dp(10),dp(10),dp(10)); root.setBackground(NativeDialog.shape(activity,0xff233236,15));
+            root.setClipToOutline(true); root.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS); root.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+            time=NativeDialog.text(activity,"",16,NativeDialog.MUTED); time.setTypeface(Typeface.MONOSPACE,Typeface.NORMAL); time.setSingleLine(true);
+            int width=Math.max(dp(84),(int)Math.ceil(time.getPaint().measureText("00:00:00"))+dp(10)); root.addView(time,new LinearLayout.LayoutParams(width,-2));
+            LinearLayout content=NativeDialog.column(activity); LinearLayout heading=new LinearLayout(activity); heading.setGravity(Gravity.CENTER_VERTICAL);
+            title=NativeDialog.text(activity,"",13,NativeDialog.TEXT); title.setTypeface(null,Typeface.BOLD); heading.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+            badge=NativeDialog.text(activity,"",8,NativeDialog.ACCENT); badge.setTypeface(null,Typeface.BOLD); badge.setPadding(dp(7),dp(3),dp(7),dp(3));
+            LinearLayout.LayoutParams tag=new LinearLayout.LayoutParams(-2,-2); tag.leftMargin=dp(8); heading.addView(badge,tag); content.addView(heading);
+            detail=NativeDialog.text(activity,"",11,NativeDialog.MUTED); detail.setTextIsSelectable(false); detail.setPadding(0,dp(4),0,0); detail.setLineSpacing(dp(2),1); content.addView(detail);
+            for (TextView text:new TextView[]{time,title,badge,detail}) { text.setFocusable(false); text.setClickable(false); text.setLongClickable(false); text.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); }
+            root.addView(content,new LinearLayout.LayoutParams(0,-2,1));
+        }
+    }
 }

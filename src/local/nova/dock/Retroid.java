@@ -37,7 +37,7 @@ final class Retroid {
             edit.putString("original_"+key,value).putBoolean("present_"+key,value!=null);
             changed=true;
         }
-        if (changed && !edit.putBoolean("saved_original",true).commit()) throw new IllegalStateException("Не удалось сохранить исходные настройки");
+        if (changed && !edit.putBoolean("saved_original",true).commit()) throw new Failure("original_save_failed");
     }
     void restore(Map<String, String> values) throws InterruptedException {
         // Both charging and performance changes can asynchronously rewrite the fan preset.
@@ -69,7 +69,7 @@ final class Retroid {
         return apply(docked,()->requireConnection);
     }
     boolean apply(boolean docked,BooleanSupplier requireConnection) throws InterruptedException {
-        if (!supported() || !permitted()) throw new SecurityException("Требуется Nova с Android 13 и доступный сервис Retroid");
+        if (!supported() || !permitted()) throw new Failure("unsupported_device");
         saveOriginal();
         Profile profile=Profiles.get(context,docked);
         if (requireConnection.getAsBoolean() && !Boolean.valueOf(docked).equals(Detector.sample(context).connected)) return false;
@@ -96,7 +96,7 @@ final class Retroid {
         }
     }
     boolean applySetting(Profile profile,int setting,BooleanSupplier active,BooleanSupplier requireConnection) throws InterruptedException {
-        if (!supported() || !permitted()) throw new SecurityException("Сервис Retroid недоступен");
+        if (!supported() || !permitted()) throw new Failure("vendor_unavailable");
         if (!active.getAsBoolean()) return false;
         if (requireConnection.getAsBoolean() && !Boolean.valueOf(profile.docked).equals(Detector.sample(context).connected)) return false;
         saveOriginal();
@@ -106,10 +106,9 @@ final class Retroid {
         switch (setting) {
             case Profile.RATE: rate(profile); break;
             case Profile.FAN:
-                if (!Profile.fanAllowed(performance,profile.fan)) throw new IllegalStateException("Вентилятор недоступен при текущей производительности");
+                if (!Profile.fanAllowed(performance,profile.fan)) throw new Failure("fan_incompatible");
                 fan(profile); break;
             case Profile.CONTROLLER:
-                if (profile.docked) return false;
                 controller(profile.layout); break;
             case Profile.PERFORMANCE:
             case Profile.BYPASS:
@@ -124,7 +123,7 @@ final class Retroid {
                     fan(desired,desired==fan?speed:"35000");
                 }
                 break;
-            default:throw new IllegalArgumentException("Неизвестная настройка");
+            default:throw new Failure("unknown_setting");
         }
         return true;
     }

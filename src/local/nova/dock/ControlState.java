@@ -38,8 +38,10 @@ final class ControlState {
         return new ControlState(managed,automatic,manualDocked,docked);
     }
     ControlState stopped() { return new ControlState(false,false,manualDocked,lastDocked); }
+    ControlState freezeManual(Boolean settled) { return new ControlState(managed,automatic,settled==null?lastDocked:settled,lastDocked); }
     boolean needsManualApply(Boolean applied,boolean force) {
         return managed && !automatic && (force || applied==null || applied!=manualDocked);
     }
     boolean shouldResume(boolean boot,boolean startOnBoot) { return managed && (!boot || startOnBoot); }
+    boolean activeProfile(boolean docked) { return managed && lastDocked==docked; }
 }

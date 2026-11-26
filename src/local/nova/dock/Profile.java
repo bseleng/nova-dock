@@ -13,11 +13,11 @@ final class Profile {
         boolean validFan=false;
         for (int f : fans(performance)) if (f==fan) validFan=true;
         if (!validFan) throw new IllegalArgumentException("Режим вентилятора несовместим с производительностью");
-        if (!docked && layout!=0 && layout!=1) throw new IllegalArgumentException("Неизвестная раскладка");
-        this.docked=docked; this.rate=rate; this.fan=fan; this.performance=performance; this.layout=docked?2:layout;
+        if (layout<0 || layout>(docked?2:1)) throw new IllegalArgumentException("Неизвестная раскладка");
+        this.docked=docked; this.rate=rate; this.fan=fan; this.performance=performance; this.layout=layout;
         this.bypassCharging=bypassCharging;
     }
-    static Profile defaults(boolean docked) { return new Profile(docked,docked?60:120,docked?6:1,docked?2:0,0,docked); }
+    static Profile defaults(boolean docked) { return new Profile(docked,docked?60:120,docked?5:1,docked?2:0,docked?2:0,docked); }
     static int[] fans(int performance) {
         return performance==2 ? new int[]{4,5,6} : performance==1 ? new int[]{1,4,5,6} : new int[]{0,1,4,5,6};
     }
@@ -50,7 +50,7 @@ final class Profile {
                 }
                 break;
             case BYPASS: b=current==0; break;
-            case CONTROLLER: if (docked) return this; l=current==0?1:0; break;
+            case CONTROLLER: l=docked?(current==2?0:current==0?1:2):current==0?1:0; break;
             default: throw new IllegalArgumentException("Неизвестная настройка");
         }
         return new Profile(docked,r,f,p,l,b);
@@ -92,6 +92,6 @@ final class Profile {
             default:throw new IllegalArgumentException("Неизвестная настройка");
         }
     }
-    String body() { return (docked?"Контроллер выключен":"Контроллер "+(layout==0?"Xbox":"Retro"))+"\nВентилятор: "+fanLabel(fan)+"\n"+performanceLabel(performance)+"\nОбходная зарядка: "+(bypassCharging?"вкл.":"выкл."); }
+    String body() { return (layout==2?"Контроллер выключен":"Контроллер "+(layout==0?"Xbox":"Retro"))+"\nВентилятор: "+fanLabel(fan)+"\n"+performanceLabel(performance)+"\nОбходная зарядка: "+(bypassCharging?"вкл.":"выкл."); }
     String status() { return (docked?"В доке":"Портативный режим")+" · "+(rate==0?"частота без изменения":rateLabel(rate))+" · "+fanLabel(fan); }
 }

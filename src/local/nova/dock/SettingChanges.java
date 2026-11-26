@@ -2,25 +2,38 @@ package local.nova.dock;
 
 /** One in-process mailbox per mode/setting, shared by the activity and service. */
 final class SettingChanges {
+    static final int OUTPUT=5, COUNT=6;
     static final class Request {
         final Profile profile;
         final int setting;
         final long revision;
         final Request rebasedFan;
+        final OutputSpec output;
         Request(Profile profile,int setting,long revision) {
             this(profile,setting,revision,null);
         }
         Request(Profile profile,int setting,long revision,Request rebasedFan) {
+            this(profile,setting,revision,rebasedFan,null);
+        }
+        Request(Profile profile,int setting,long revision,Request rebasedFan,OutputSpec output) {
             this.profile=profile; this.setting=setting; this.revision=revision;
-            this.rebasedFan=rebasedFan;
+            this.rebasedFan=rebasedFan; this.output=output;
         }
     }
-    private final Request[][] pending=new Request[2][5];
-    private final long[][] latest=new long[2][5], completed=new long[2][5];
+    private final Request[][] pending=new Request[2][COUNT];
+    private final Request[][] targets=new Request[2][COUNT];
+    private final long[][] latest=new long[2][COUNT], completed=new long[2][COUNT];
     private long revision;
 
     synchronized Request offer(Profile profile,int setting) {
         if (setting<Profile.RATE || setting>Profile.CONTROLLER) throw new IllegalArgumentException("Неизвестная настройка");
+        return offer(profile,setting,null);
+    }
+    synchronized Request offerOutput(Profile profile,OutputSpec output) {
+        if (output==null) throw new IllegalArgumentException("invalid_value");
+        return offer(profile,OUTPUT,output);
+    }
+    private Request offer(Profile profile,int setting,OutputSpec output) {
         int mode=profile.docked?1:0;
         long nextRevision=++revision;
         Request fan=null;
@@ -30,10 +43,12 @@ final class SettingChanges {
             fan=new Request(profile,Profile.FAN,++revision);
             latest[mode][Profile.FAN]=fan.revision;
             pending[mode][Profile.FAN]=fan;
+            targets[mode][Profile.FAN]=fan;
         }
-        Request request=new Request(profile,setting,nextRevision,fan);
+        Request request=new Request(profile,setting,nextRevision,fan,output);
         latest[mode][setting]=request.revision;
         pending[mode][setting]=request;
+        targets[mode][setting]=request;
         return request;
     }
     synchronized Request take() {
@@ -58,10 +73,15 @@ final class SettingChanges {
     synchronized boolean acknowledged(boolean docked,int setting,long revision) {
         return completed[docked?1:0][setting]>=revision;
     }
+    synchronized Request target(boolean docked,int setting) {
+        Request request=targets[docked?1:0][setting];
+        return request!=null && !acknowledged(docked,setting,request.revision)?request:null;
+    }
     synchronized void cancelAll() {
-        for (int mode=0;mode<2;mode++) for (int setting=0;setting<5;setting++) {
-            pending[mode][setting]=null;
-            completed[mode][setting]=latest[mode][setting];
-        }
+        cancelMode(false); cancelMode(true);
+    }
+    synchronized void cancelMode(boolean docked) {
+        int mode=docked?1:0;
+        for (int setting=0;setting<COUNT;setting++) { pending[mode][setting]=null; completed[mode][setting]=latest[mode][setting]; }
     }
 }

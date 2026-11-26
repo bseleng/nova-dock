@@ -8,6 +8,9 @@ final class RuntimeSettings {
     private final int[] pending={-1,-1,-1,-1,-1};
     RuntimeSettings(Map<String,String> values) { this.values=values; }
     void pending(int setting,int value) { pending[setting]=value; }
+    boolean isPending(int setting) { return pending[setting]>=0; }
+    int currentRate() { return Math.round(number("peak_refresh_rate",60)); }
+    boolean customFan(Profile profile) { return pending[Profile.FAN]<0 && value(profile,Profile.FAN)==6 && !"35000".equals(values.get("fan_speed")); }
     int value(Profile profile,int setting) {
         if (pending[setting]>=0) return pending[setting];
         int fallback=profile.intValue(setting);

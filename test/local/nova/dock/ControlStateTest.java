@@ -33,6 +33,12 @@ public final class ControlStateTest {
         check(!manual.manualDocked,"An old in-flight transition must not overwrite a later explicit manual choice");
         manual=manual.applied(false);
         check(!manual.needsManualApply(false,false),"Reopening a live manual session must not reapply its profile");
+        ControlState dirty=new ControlState(true,true,false,false).automatic(false).freezeManual(null);
+        check(dirty.managed && !dirty.automatic && !dirty.manualDocked && !dirty.lastDocked,"Auto OFF after a dirty failed transition must retain only the last successful manual target");
+        check(dirty.needsManualApply(null,false),"Unknown/dirty actual state must remain eligible for a complete explicit Handheld apply, not a same-mode NO-OP");
+        check(!dirty.applied(false).needsManualApply(false,false),"Only a genuinely completed Handheld transition may become a same-mode NO-OP");
+        ControlState settledDock=dirty.applied(true).freezeManual(true);
+        check(settledDock.manualDocked && settledDock.lastDocked && !settledDock.needsManualApply(true,false),"Auto OFF after a started successful Dock transition must freeze its settled runtime without reapplying");
         ControlState automatic=manual.automatic(true);
         check(automatic.managed && automatic.automatic && !automatic.lastDocked,"Auto ON must retain the current applied mode");
         check(!automatic.needsManualApply(false,true),"Automatic sessions must use display debounce rather than manual apply");

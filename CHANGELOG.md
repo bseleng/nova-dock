@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 — 2026-11-26
+
+- Adopt the owner's saved defaults: Dock 60 Hz / Sport / High Performance / controller Off / bypass On; Handheld 120 Hz / Quiet / Standard / Xbox / bypass Off. Both output profiles start at 4:3 + Leave as is; upgrades preserve saved choices.
+- Add separate video-output settings to both profiles, matching Retroid's two aspect choices and seven factory timing presets. Apply the saved output on mode changes or explicit active-card edits.
+- Move session controls into Settings; add Retroid's device-screen switch and Android's refresh-rate overlay.
+- Add native English, Russian and system-language selection, including notifications, errors and structured journal events.
+- Keep nova/dock centered in a pinned header, with square/Select Log on the left and Play/Start Settings on the right. Start closes only the top dialog.
+- Add smooth right-stick scrolling without changing focus; retain D-pad/left-stick navigation and A/B actions. Use complete window-owned presses to prevent inherited or repeated commands.
+- Put Restore/Clear at the top left of compact Settings/Log. Dangerous actions require a 1.5-second A/touch hold with progress; a separate Hold/A hint appears only on focus without shifting content. Close stays top right in these two windows.
+- Make the dock controller tile editable (Off / Xbox / Retro), retain temporary system-panel overrides, and keep shared tile heights stable across RU/EN labels and font sizes.
+- Recycle journal rows, show counts and UTF-8 size beside the sort caption, and retain up to 200 complete records / 64 KiB without a cleanup timer.
+- Serialize global controls, preserve original snapshots and roll back failed output changes. Refresh bilingual documentation and real-device screenshots.
+
+The new external-display video-output and frame-pacing check is deferred to the next test cycle; this release does not claim that check passed.
+
 ## 0.4.0 — 2026-11-25
 
 - Replaced profile editors with icon tiles that cycle values on tap and save immediately.
